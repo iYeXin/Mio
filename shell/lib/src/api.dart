@@ -11,7 +11,10 @@ import 'app_manifest.dart';
 import 'asar.dart';
 import 'atomic_file.dart';
 import 'errors.dart';
+import 'device_api.dart';
+import 'http_api.dart';
 import 'native_manager.dart';
+import 'platform_actions.dart';
 import 'process_manager.dart';
 import 'window_actions.dart';
 
@@ -23,7 +26,7 @@ const String mioApiVersion = '1.0.0';
 /// the same version as the release manifest.
 const String mioTemplateVersion = String.fromEnvironment(
   'MIO_TEMPLATE_VERSION',
-  defaultValue: '0.1.1',
+  defaultValue: '0.1.2',
 );
 
 final GlobalKey<NavigatorState> mioNavigatorKey = GlobalKey<NavigatorState>();
@@ -37,7 +40,8 @@ class MioApi with WidgetsBindingObserver {
     required this.platformName,
     required this.windowActions,
     this.asar,
-  }) : _fsRoot = Directory(p.join(dataDir.path, 'app')) {
+  })  : _fsRoot = Directory(p.join(dataDir.path, 'app')),
+        platformActions = createPlatformActions(platformName) {
     WidgetsBinding.instance.addObserver(this);
     _fsRoot.createSync(recursive: true);
     _processManager = MioProcessManager(
@@ -52,17 +56,30 @@ class MioApi with WidgetsBindingObserver {
       platformName: platformName,
       emit: emit,
     );
+    _http = MioHttpApi(
+      emit: emit,
+      resolvePath: _resolvePath,
+      platformName: platformName,
+    );
+    _device = MioDeviceApi(
+      platformName: platformName,
+      manifest: manifest,
+      dataDir: dataDir,
+    );
   }
 
   final AppManifest manifest;
   final Directory dataDir;
   final String platformName;
   final WindowActions windowActions;
+  final PlatformActions platformActions;
   final AsarArchive? asar;
   final Directory _fsRoot;
 
   late final MioProcessManager _processManager;
   late final MioNativeManager _nativeManager;
+  late final MioHttpApi _http;
+  late final MioDeviceApi _device;
 
   /// When the shell finished starting; exposed for diagnostics.
   final DateTime _startedAt = DateTime.now().toUtc();
@@ -109,6 +126,9 @@ class MioApi with WidgetsBindingObserver {
             'native': _nativeManager.available,
             'process': platformName == 'windows',
             'window': windowActions.supported,
+            'notify': platformName == 'android',
+            'media': platformName == 'android' || platformName == 'windows',
+            'foreground': platformName == 'android' && manifest.foregroundService,
           },
         };
       case 'app.quit':
@@ -123,6 +143,22 @@ class MioApi with WidgetsBindingObserver {
           'install': p.dirname(Platform.resolvedExecutable),
           'temp': Directory.systemTemp.path,
         };
+      case 'platform.keepAwake':
+        if (!platformActions.supportsKeepAwake) {
+          throw MioApiException('UNSUPPORTED', 'keepAwake is not available on $platformName');
+        }
+        await platformActions.keepAwake(_requiredBool(params, 'enabled'));
+        return null;
+      case 'platform.orientation':
+        if (!platformActions.supportsOrientation) {
+          throw MioApiException('UNSUPPORTED', 'orientation is not available on $platformName');
+        }
+        final mode = _requiredString(params, 'mode');
+        if (!const {'auto', 'portrait', 'landscape'}.contains(mode)) {
+          throw MioApiException('BAD_REQUEST', 'mode must be auto/portrait/landscape');
+        }
+        await platformActions.orientation(mode);
+        return null;
       case 'platform.info':
         return {
           'os': Platform.operatingSystem,
@@ -176,6 +212,8 @@ class MioApi with WidgetsBindingObserver {
         return await _openDirectory();
       case 'dialog.saveFile':
         return await _saveFile(params);
+      case 'dialog.openFiles':
+        return await _openFiles(params);
 
       case 'fs.readText':
         return await _readText(params);
@@ -194,6 +232,8 @@ class MioApi with WidgetsBindingObserver {
         return await _remove(params);
       case 'fs.rename':
         return await _rename(params);
+      case 'fs.copy':
+        return await _copy(params);
       case 'fs.exists':
         return await _exists(params);
       case 'clipboard.readText':
@@ -211,6 +251,13 @@ class MioApi with WidgetsBindingObserver {
         return await _reveal(params);
       case 'app.log':
         return await _log(params);
+      case final method when method.startsWith('http.'):
+        return await _http.call(method, params);
+      case final method
+          when method.startsWith('notify.') ||
+              method.startsWith('media.') ||
+              method.startsWith('foreground.'):
+        return await _device.call(method, params);
       default:
         throw MioApiException(
           'METHOD_NOT_FOUND',
@@ -240,6 +287,7 @@ class MioApi with WidgetsBindingObserver {
     bindEventSink(null);
     await _nativeManager.close();
     await _processManager.killAll();
+    await _http.dispose();
   }
 
   Future<Object?> _windowCall(Future<void> Function() action) async {
@@ -280,6 +328,19 @@ class MioApi with WidgetsBindingObserver {
     return file?.path;
   }
 
+  Future<Object?> _openFiles(Map<String, dynamic> params) async {
+    final extensions = _optionalStringList(params, 'extensions');
+    final groups = extensions == null || extensions.isEmpty
+        ? const <XTypeGroup>[XTypeGroup(label: 'Files')]
+        : <XTypeGroup>[
+            XTypeGroup(
+              label: 'Files',
+              extensions: extensions.map((value) => value.replaceFirst('.', '')).toList(),
+            ),
+          ];
+    final files = await openFiles(acceptedTypeGroups: groups);
+    return files.map((file) => file.path).toList();
+  }
   Future<Object?> _saveFile(Map<String, dynamic> params) async {
     final suggestedName = _optionalString(params, 'suggestedName');
     final location = await getSaveLocation(suggestedName: suggestedName);
@@ -291,6 +352,55 @@ class MioApi with WidgetsBindingObserver {
     return path;
   }
 
+  /// Copies a file or directory inside the sandbox.
+  ///
+  /// Files stream through a temporary sibling so an interrupted copy cannot be
+  /// mistaken for a complete one; directories are copied recursively.
+  Future<Object?> _copy(Map<String, dynamic> params) async {
+    final from = _resolvePath(_requiredString(params, 'from'));
+    final to = _resolvePath(_requiredString(params, 'to'));
+    if (p.isWithin(from, to)) {
+      throw MioApiException('BAD_REQUEST', 'Cannot copy a directory into itself');
+    }
+    final type = await FileSystemEntity.type(from);
+    if (type == FileSystemEntityType.notFound) {
+      throw MioApiException('FS_NOT_FOUND', 'Source not found', {'path': from});
+    }
+    final target = File(to);
+    try {
+      if (type == FileSystemEntityType.directory) {
+        await _copyDirectory(Directory(from), target);
+        return null;
+      }
+      await target.parent.create(recursive: true);
+      final temporary = File('${target.path}.part');
+      try {
+        await File(from).openRead().pipe(temporary.openWrite());
+        if (await target.exists()) await target.delete();
+        await temporary.rename(target.path);
+      } catch (_) {
+        if (await temporary.exists()) await temporary.delete();
+        rethrow;
+      }
+      return null;
+    } on FileSystemException catch (error) {
+      throw MioApiException('FS_ERROR', error.message, {'path': error.path});
+    }
+  }
+
+  Future<void> _copyDirectory(Directory source, File target) async {
+    // `to` names the destination directory itself, not its parent.
+    await target.parent.create(recursive: true);
+    await Directory(target.path).create(recursive: true);
+    await for (final entity in source.list(followLinks: false)) {
+      final destination = p.join(target.path, p.basename(entity.path));
+      if (entity is Directory) {
+        await _copyDirectory(entity, File(destination));
+      } else if (entity is File) {
+        await entity.copy(destination);
+      }
+    }
+  }
   String _resolvePath(String value) {
     final normalized = p.normalize(value.replaceAll('\\', '/'));
     if (p.isAbsolute(normalized)) {
@@ -540,6 +650,12 @@ class MioApi with WidgetsBindingObserver {
   String? _optionalString(Map<String, dynamic> params, String key) {
     final value = params[key];
     return value is String && value.isNotEmpty ? value : null;
+  }
+
+  bool _requiredBool(Map<String, dynamic> params, String key) {
+    final value = params[key];
+    if (value is bool) return value;
+    throw MioApiException('BAD_REQUEST', 'Missing boolean parameter: $key');
   }
 
   int _requiredInt(Map<String, dynamic> params, String key) {

@@ -1,0 +1,19 @@
+{
+  "app": {
+    "id": "dev.mio.platformcheck",
+    "name": "Platform Check",
+    "version": "0.1.0"
+  },
+  "window": {
+    "width": 880,
+    "height": 720,
+    "title": "Platform Check"
+  },
+  "web": {
+    "outDir": "web"
+  },
+  "android": {
+    "abi": "x64",
+    "foregroundService": true
+  }
+}

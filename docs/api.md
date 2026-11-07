@@ -50,12 +50,17 @@ const unsubscribe = await Mio.on("app.lifecycle", (event) => {
 | `features.native` | `nativeApi` 可用（平台支持 + 有应用归档） |
 | `features.process` | `processApi` 可用（Windows） |
 | `features.window` | 窗口控制可用 |
+| `features.notify` | `notify.send` 可用（Android） |
+| `features.media` | `media.pickImage` 可用（Android / Windows） |
+| `features.foreground` | 前台服务可用：Android 且配置里声明了 `android.foregroundService` |
 
 ## platform
 
 | 方法 | 返回 |
 |---|---|
 | `platform.info()` | `{ os, osVersion, locale, processors, platform, abi }` |
+| `platform.keepAwake(enabled)` | 保持屏幕常亮（Android、Windows） |
+| `platform.orientation(mode)` | 锁定屏幕方向：`auto` / `portrait` / `landscape`（Android） |
 
 ## fs
 
@@ -74,6 +79,7 @@ const unsubscribe = await Mio.on("app.lifecycle", (event) => {
 | `fs.mkdir(path)` | 递归创建目录 |
 | `fs.remove(path, recursive?)` | 删除文件/目录 |
 | `fs.rename(from, to)` | 重命名文件 |
+| `fs.copy(from, to)` | 复制文件或目录；文件流式写入临时文件再改名 |
 | `fs.exists(path)` | 是否存在 |
 
 ### 二进制传输
@@ -112,6 +118,7 @@ window.Mio.writeBlob(path, bytes); // -> Promise<void>
 | `dialog.openFile(extensions?)` | 选择文件，返回路径或 null |
 | `dialog.openDirectory()` | 选择目录，返回路径或 null |
 | `dialog.saveFile(suggestedName?)` | 选择保存位置，返回路径或 null |
+| `dialog.openFiles(extensions?)` | 多选文件，返回路径数组（取消时为空数组） |
 
 ## clipboard
 
@@ -127,6 +134,74 @@ window.Mio.writeBlob(path, bytes); // -> Promise<void>
 | `shell.openExternal(url)` | 只允许 http/https/mailto |
 | `shell.openPath(path)` | 用系统默认程序打开沙箱内的文件（仅 Windows） |
 | `shell.reveal(path)` | 在资源管理器中定位文件/目录（仅 Windows） |
+
+## http
+
+WebView 里的 `fetch()` 受同源策略和 CORS 限制，也发不出某些请求。`http` 由 Dart 执行，
+没有这些限制；同一套 API 还能在应用内起一个 HTTP 服务，供局域网里的其他设备访问。
+
+| 方法 | 说明 |
+|---|---|
+| `http.request({ url, method?, headers?, body?, timeoutMs?, followRedirects? })` | 返回 `{ status, url, headers, body, bytes }`，`body` 是 `Uint8Array` |
+| `http.download({ url, path, ... })` | 把响应流式写入沙箱文件，返回 `{ status, path, bytes, headers }` |
+| `http.serve({ host?, port?, maxBodyBytes? })` | 启动本地服务，返回 `{ host, port }`；`port: 0` 由系统分配 |
+| `http.stop()` | 关闭服务 |
+| `http.respond(id, { status?, headers?, body? })` | 回应一次请求 |
+| `http.onRequest(handler)` | 订阅 `http.request` 并自动回应；返回取消函数 |
+
+`http.request` 的响应上限是 32 MB，超过会报 `HTTP_RESPONSE_TOO_LARGE`；大文件用
+`http.download`。只允许 `http` / `https`。
+
+服务默认绑定 `127.0.0.1`；要接受局域网连接，显式传 `host: "0.0.0.0"`。每个请求会以
+`http.request` 事件推给页面：
+
+```ts
+await http.serve({ host: "0.0.0.0", port: 8080 });
+await http.onRequest(async (request) => {
+  if (request.path === "/health") {
+    return { status: 200, headers: { "content-type": "text/plain" }, body: "ok" };
+  }
+  return { status: 404 };
+});
+```
+
+事件数据：`{ id, method, path, query, headers, remote, body: Uint8Array }`。页面 60 秒内
+不回应，服务返回 504；`body` 超过 `maxBodyBytes`（默认 16 MB）返回 413。
+
+## notify
+
+| 方法 | 说明 |
+|---|---|
+| `notify.send({ title, body?, id? })` | 系统通知，Android only；Android 13+ 首次调用时请求通知权限 |
+
+Windows 没有对应实现，调用返回 `UNSUPPORTED`。
+
+## media
+
+| 方法 | 说明 |
+|---|---|
+| `media.pickImage()` | 打开系统相册（Windows 上是文件选择器），把图片复制到沙箱 `media/`，返回 `{ path, name, mime, size }` 或 `null` |
+
+`path` 是相对沙箱的路径，可以直接交给 `fs.readBytes` / `fs.blobUrl`。
+
+## foreground
+
+Android 前台服务：带一个常驻通知，让进程在后台继续存活（后台下载、长任务）。
+需要先在 `mio.config.json` 里声明：
+
+```json
+{ "android": { "foregroundService": true } }
+```
+
+| 方法 | 说明 |
+|---|---|
+| `foreground.start({ title?, text? })` | 启动服务并显示常驻通知 |
+| `foreground.stop()` | 停止服务 |
+| `foreground.info()` | `{ supported, declared }` |
+
+未声明时调用 `foreground.start` 会失败（`FORBIDDEN`）；非 Android 平台返回
+`UNSUPPORTED`。服务类型声明为 `dataSync`，Android 14+ 需要
+`FOREGROUND_SERVICE_DATA_SYNC` 权限（模板已包含）。
 
 ## nativeApi（Android / Windows）
 
@@ -288,6 +363,7 @@ Android 上 `windowApi` 返回 `supported: false`，动作调用会抛 `UNSUPPOR
 | 事件 | 数据 |
 |---|---|
 | `bridge.state` | `{ state: "connecting" \| "open" \| "closed" }` |
+| `http.request` | `{ id, method, path, query, headers, remote, bodyBase64 }`，原始 bridge 数据是 base64 |
 | `app.lifecycle` | `{ state: "resumed" \| "inactive" \| "paused" \| "detached" \| ... }` |
 | `process.stdout` / `process.stderr` | `{ id, pid, data }`，`data` 是 base64 分块（`processApi.onStdout` 已解码） |
 | `process.exit` | `{ id, pid, code, signal, executable }` |
@@ -344,6 +420,16 @@ Promise 会以 `MioError` 拒绝，带 `code`、`message`、`data`：
 | `WINDOW_ERROR` | 窗口操作失败（底层报错） |
 | `SHELL_ERROR` | 打开 URL / 文件 / 资源管理器失败 |
 | `NATIVE_START_FAILED` | `mio_start` 抛错 |
+| `HTTP_BAD_URL` | 只允许 http/https URL |
+| `HTTP_ERROR` | 请求失败（DNS、连接、写文件等） |
+| `HTTP_TIMEOUT` | 请求超时 |
+| `HTTP_RESPONSE_TOO_LARGE` | 响应超过 `http.request` 的上限（32 MB），改用 `http.download` |
+| `HTTP_BIND_FAILED` | 端口被占用或地址不可用 |
+| `HTTP_NO_PENDING_REQUEST` | `http.respond` 的 id 不存在或已回应 |
+| `NOTIFY_FAILED` | 通知发送失败 |
+| `MEDIA_FAILED` | 选择图片失败 |
+| `FOREGROUND_FAILED` | 前台服务启动/停止失败 |
+| `FORBIDDEN` | 应用配置未声明该能力（如 `android.foregroundService`） |
 | `MIO_TIMEOUT` | 调用超时（30 秒） |
 | `MIO_DISCONNECTED` | WebSocket 断开 |
 

@@ -3,6 +3,31 @@
 本文件记录 Mio 的对外变更。版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)；
 `MIO_API_VERSION`（桥契约）与 CLI 版本分开演进，见 [docs/release.md](docs/release.md)。
 
+## 0.1.2 — 2026-11-07
+
+- 新增 `fs.copy(from, to)`：复制文件或目录，文件流式写临时文件再改名；
+- 新增 `dialog.openFiles(extensions?)`：多选文件，取消返回空数组；
+- 新增 `platform.keepAwake(enabled)`：Android 保持屏幕常亮，Windows 用
+  `SetThreadExecutionState`；
+- 新增 `platform.orientation(mode)`：Android 锁定 `auto` / `portrait` / `landscape`；
+- `mio create` 不再自动执行 `npm install`，只输出后续命令。
+
+## 未发布
+
+- `mio create` 不再自动执行 `npm install`：装依赖由用户决定，输出里只给出下一步命令；
+- 新 API：
+  - `http.request` / `http.download`：由 Dart 发起请求，不受 CORS 限制，支持自定义方法、
+    请求头和请求体；响应上限 32 MB，大文件走 `http.download` 流式写盘；
+  - `http.serve` / `http.stop` / `http.respond` / `http.onRequest`：应用内 HTTP 服务，
+    默认绑定 loopback，可显式开放到局域网；请求以 `http.request` 事件推到页面；
+  - `notify.send`：Android 系统通知（Android 13+ 按需请求权限）；
+  - `media.pickImage`：Android 相册 / Windows 文件选择器，图片复制到沙箱 `media/`；
+  - `foreground.start` / `stop` / `info`：Android 前台服务（常驻通知），需要在
+    `mio.config.json` 里声明 `android.foregroundService: true`；
+- `app.info().features` 新增 `notify` / `media` / `foreground` 三个能力位；
+- 模板新增 `POST_NOTIFICATIONS`、`FOREGROUND_SERVICE`、`FOREGROUND_SERVICE_DATA_SYNC`
+  权限与 `MioForegroundService` 声明；
+- 新增 `tools/verification/platform` 验证应用。
 ## 0.1.1 — 2026-11-07
 
 - npm 包改为 `@iyexin` scope：`@iyexin/mio-cli`、`@iyexin/mio-api`、

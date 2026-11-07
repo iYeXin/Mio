@@ -1,8 +1,7 @@
 # 验证应用（人工跑，不入 CI）
 
-这两个小应用的用途是**手工**验证那些自动化测试覆盖不到的东西：真实 WebView、
-真实原生加载、事件桥、进程清理。结果记录在
-[../../docs/mvp-acceptance.md](../../docs/mvp-acceptance.md)。
+这些应用的用途是**手工**验证那些自动化测试覆盖不到的东西：真实 WebView、真实原生
+加载、事件桥、进程清理、平台能力。
 
 它们没有自动化：需要真机/真桌面、需要编译原生库、需要看屏幕。别把它们接进 CI。
 
@@ -42,6 +41,35 @@ cd tools/verification/process/app
 node ../../../../packages/cli/dist/bin.js build --platform windows --skip-web
 ./build/mio/windows/Sidecar-Check/Sidecar-Check.exe
 ```
+
+## platform/ —— HTTP、通知、相册、前台服务
+
+覆盖：`http.request`（https，不走 CORS）、`http.serve` + `http.onRequest`（页面
+自建服务、POST 回显）、`http.download`、`notify.send`（Android）、`media.pickImage`
+（Android 相册 / Windows 文件选择器，需要手动点一下）、`foreground.start/stop`。
+
+`android.foregroundService` 已在该应用的 `mio.config.json` 里开启。
+
+```powershell
+cd tools/verification/platform/app
+node ../../../../packages/cli/dist/bin.js build --platform windows --skip-web
+./build/mio/windows/Platform-Check/Platform-Check.exe
+```
+
+Android（x64 模板用于模拟器）：
+
+```powershell
+cd shell
+flutter build apk --release -t lib/main_android.dart --target-platform android-x64
+cd ../tools/verification/platform/app
+node ../../../../packages/cli/dist/bin.js build --platform android --abi x64 --skip-web \
+  --template ../../../../shell/build/app/outputs/flutter-apk/app-release.apk
+adb install -r build/mio/android/Platform-Check-0.1.0.apk
+adb shell am start -n dev.mio.platformcheck/dev.mio.mio_shell.MainActivity
+```
+
+Android 13+ 第一次 `notify.send` 会弹通知权限，允许后才会真正发通知。结果：Android
+6/7（相册一项要手动点），Windows 4 项通过、3 项 SKIP/OPEN。
 
 ## 为什么不在仓库里放二进制
 

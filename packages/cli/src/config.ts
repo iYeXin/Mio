@@ -28,6 +28,8 @@ export interface MioConfig {
     abi?: AndroidAbi;
     minSdk?: number;
     pageSize?: 4 | 16;
+    /** Allows `foreground.start`, which keeps the process alive in the background. */
+    foregroundService?: boolean;
     keystore?: string;
     alias?: string;
     storePasswordEnv?: string;

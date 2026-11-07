@@ -17,6 +17,12 @@ export interface AppFeatures {
   process: boolean;
   /** Window controls are available. */
   window: boolean;
+  /** `notify.send` is usable (Android only). */
+  notify: boolean;
+  /** `media.pickImage` is usable. */
+  media: boolean;
+  /** Android foreground service, enabled by the app's config. */
+  foreground: boolean;
 }
 
 export interface AppInfo {
@@ -401,6 +407,12 @@ export const app = {
 
 export const platform = {
   info: (): Promise<PlatformInfo> => invoke("platform.info"),
+  /** Keeps the screen awake while the app runs (Android, Windows). */
+  keepAwake: (enabled: boolean): Promise<void> =>
+    invoke("platform.keepAwake", { enabled }),
+  /** Locks the screen orientation (Android); `auto` releases the lock. */
+  orientation: (mode: "auto" | "portrait" | "landscape"): Promise<void> =>
+    invoke("platform.orientation", { mode }),
 };
 
 export const fs = {
@@ -421,18 +433,203 @@ export const fs = {
   remove: (path: string, recursive = false): Promise<boolean> =>
     invoke("fs.remove", { path, recursive }),
   rename: (from: string, to: string): Promise<void> => invoke("fs.rename", { from, to }),
+  /** Copies a file or directory; files stream through a temporary sibling. */
+  copy: (from: string, to: string): Promise<void> => invoke("fs.copy", { from, to }),
   exists: (path: string): Promise<boolean> => invoke("fs.exists", { path }),
   /** URL usable with fetch() for streaming reads (Range supported). */
   blobUrl: async (path: string): Promise<string> => (await getMio()).blobUrl(path),
 };
 
+export interface HttpRequestOptions {
+  url: string;
+  method?: string;
+  headers?: Record<string, string>;
+  /** Strings are sent as UTF-8; bytes are sent as-is. */
+  body?: string | Uint8Array | ArrayBuffer;
+  timeoutMs?: number;
+  followRedirects?: boolean;
+}
+
+export interface HttpResponse {
+  status: number;
+  url: string;
+  headers: Record<string, string | string[]>;
+  body: Uint8Array;
+  bytes: number;
+}
+
+export interface HttpServerRequest {
+  id: string;
+  method: string;
+  path: string;
+  query: string;
+  headers: Record<string, string | string[]>;
+  remote: string;
+  body: Uint8Array;
+}
+
+export interface HttpServerResponse {
+  status?: number;
+  headers?: Record<string, string>;
+  body?: string | Uint8Array | ArrayBuffer;
+}
+
+export type HttpServerHandler = (
+  request: HttpServerRequest,
+) => HttpServerResponse | void | Promise<HttpServerResponse | void>;
+
+/**
+ * Requests and a local HTTP server, backed by Dart instead of `fetch()`:
+ * no CORS, any method, and access to endpoints a WebView's origin cannot reach.
+ */
+export const http = {
+  async request(options: HttpRequestOptions): Promise<HttpResponse> {
+    const result = await invoke<{
+      status: number;
+      url: string;
+      headers: Record<string, string | string[]>;
+      bodyBase64: string;
+      bytes: number;
+    }>("http.request", {
+      url: options.url,
+      method: options.method,
+      headers: options.headers,
+      bodyBase64: options.body === undefined ? undefined : toBase64(options.body),
+      timeoutMs: options.timeoutMs,
+      followRedirects: options.followRedirects,
+    });
+    return {
+      status: result.status,
+      url: result.url,
+      headers: result.headers,
+      body: fromBase64(result.bodyBase64),
+      bytes: result.bytes,
+    };
+  },
+
+  /** Streams the response straight into a sandbox file. */
+  download: (options: HttpRequestOptions & { path: string }): Promise<{
+    status: number;
+    path: string;
+    bytes: number;
+    headers: Record<string, string | string[]>;
+  }> =>
+    invoke("http.download", {
+      url: options.url,
+      path: options.path,
+      method: options.method,
+      headers: options.headers,
+      bodyBase64: options.body === undefined ? undefined : toBase64(options.body),
+      timeoutMs: options.timeoutMs,
+      followRedirects: options.followRedirects,
+    }),
+
+  /**
+   * Starts the in-app server. Defaults to loopback; pass `host: "0.0.0.0"`
+   * to accept connections from the LAN.
+   */
+  serve: (options?: {
+    host?: string;
+    port?: number;
+    maxBodyBytes?: number;
+  }): Promise<{ host: string; port: number; alreadyRunning?: boolean }> =>
+    invoke("http.serve", options ?? {}),
+
+  stop: (): Promise<{ stopped: boolean }> => invoke("http.stop"),
+
+  respond: (id: string, response: HttpServerResponse): Promise<void> =>
+    invoke("http.respond", {
+      id,
+      status: response.status,
+      headers: response.headers,
+      bodyBase64: response.body === undefined ? undefined : toBase64(response.body),
+    }),
+
+  /**
+   * Routes incoming requests to `handler` and answers them automatically.
+   * Returning nothing sends `204 No Content`; a thrown error sends `500`.
+   */
+  async onRequest(handler: HttpServerHandler): Promise<() => void> {
+    return await Mio.on("http.request", async (data) => {
+      const request = data as Omit<HttpServerRequest, "body"> & { bodyBase64: string };
+      try {
+        const response = (await handler({
+          id: request.id,
+          method: request.method,
+          path: request.path,
+          query: request.query,
+          headers: request.headers,
+          remote: request.remote,
+          body: fromBase64(request.bodyBase64),
+        })) as HttpServerResponse | void;
+        await http.respond(request.id, response ?? { status: 204 });
+      } catch (error) {
+        await http.respond(request.id, {
+          status: 500,
+          headers: { "content-type": "text/plain; charset=utf-8" },
+          body: error instanceof Error ? error.message : String(error),
+        });
+      }
+    });
+  },
+};
+
 export const dialog = {
   openFile: (extensions?: string[]): Promise<string | null> =>
     invoke("dialog.openFile", { extensions }),
+  openFiles: (extensions?: string[]): Promise<string[]> =>
+    invoke("dialog.openFiles", { extensions }),
   openDirectory: (): Promise<string | null> => invoke("dialog.openDirectory"),
   saveFile: (suggestedName?: string): Promise<string | null> =>
     invoke("dialog.saveFile", { suggestedName }),
 
+};
+
+export const notify = {
+  /**
+   * Posts a system notification. Android only: it asks for the
+   * POST_NOTIFICATIONS permission on first use (Android 13+).
+   */
+  send: (options: {
+    title: string;
+    body?: string;
+    id?: number;
+  }): Promise<{ id: number }> => invoke("notify.send", options),
+};
+
+export interface PickedImage {
+  /** Path relative to the app sandbox, usable with `fs.*`. */
+  path: string;
+  name: string;
+  mime: string;
+  size: number;
+}
+
+export const media = {
+  /**
+   * Opens the system gallery on Android (file picker on Windows) and copies the
+   * picked image into `media/` inside the sandbox. Resolves to null when the
+   * user cancels.
+   */
+  pickImage: (): Promise<PickedImage | null> => invoke("media.pickImage"),
+};
+
+export const foreground = {
+  /**
+   * Starts an Android foreground service with an ongoing notification, so the
+   * process (and the WebView) keeps running in the background.
+   *
+   * Requires `android.foregroundService: true` in mio.config.json; otherwise
+   * the call fails with `FORBIDDEN`.
+   */
+  start: (options?: {
+    title?: string;
+    text?: string;
+  }): Promise<{ running: boolean }> => invoke("foreground.start", options ?? {}),
+  stop: (): Promise<{ running: boolean }> => invoke("foreground.stop"),
+  /** `supported` is platform capability; `declared` is the app's config flag. */
+  info: (): Promise<{ supported: boolean; declared: boolean }> =>
+    invoke("foreground.info"),
 };
 
 export const clipboard = {

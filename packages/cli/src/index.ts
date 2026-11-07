@@ -12,7 +12,7 @@ import { exists } from "./project.js";
 const HELP = `Mio — lightweight cross-platform app framework
 
 Usage:
-  mio create [target] [--no-install]
+  mio create [target]
   mio build [--platform android|windows] [--skip-web] [--template <path>] [--config mio.config.json]
   mio dev --platform android|windows [--no-install] [--template <path>]
   mio doctor
@@ -57,7 +57,7 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
   switch (command) {
     case "create": {
       const target = positionals[1] ?? "mio-app";
-      await createProject({ target, install: !values["no-install"] });
+      await createProject({ target });
       return;
     }
     case "build": {

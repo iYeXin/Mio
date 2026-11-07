@@ -1,0 +1,280 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Platform Check</title>
+    <style>
+      :root {
+        --paper: #fbfaf7;
+        --ink: #16150f;
+        --muted: #6f6b60;
+        --rule: #dcd8cd;
+        --pass: #1f6b3a;
+        --fail: #a3341f;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--paper);
+        color: var(--ink);
+        font: 13px/1.55 "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+        -webkit-font-smoothing: antialiased;
+      }
+      .sheet { max-width: 760px; margin: 0 auto; padding: 40px 32px 56px; }
+      .masthead {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        border-bottom: 1px solid var(--ink);
+        padding-bottom: 10px;
+      }
+      .wordmark { font: 600 13px/1 ui-monospace, "Cascadia Mono", monospace; letter-spacing: 0.22em; }
+      .meta { font: 11px/1 ui-monospace, "Cascadia Mono", monospace; color: var(--muted); letter-spacing: 0.04em; }
+      h1 { font-size: 30px; line-height: 1.15; font-weight: 400; margin: 26px 0 6px; letter-spacing: -0.01em; }
+      .lede { color: var(--muted); margin: 0 0 28px; max-width: 58ch; }
+      .cases { border-top: 1px solid var(--rule); }
+      .case {
+        display: grid;
+        grid-template-columns: 30px 1fr auto;
+        gap: 14px;
+        align-items: baseline;
+        padding: 13px 0;
+        border-bottom: 1px solid var(--rule);
+      }
+      .no { font: 11px/1 ui-monospace, "Cascadia Mono", monospace; color: var(--muted); }
+      .name { display: block; }
+      .detail { display: block; font: 12px/1.5 ui-monospace, "Cascadia Mono", monospace; color: var(--muted); }
+      .status { font: 11px/1 ui-monospace, "Cascadia Mono", monospace; letter-spacing: 0.08em; }
+      .status.pass { color: var(--pass); }
+      .status.fail { color: var(--fail); }
+      .status.wait { color: var(--muted); }
+      .colophon {
+        margin-top: 26px;
+        display: flex;
+        justify-content: space-between;
+        gap: 16px;
+        font: 11px/1.6 ui-monospace, "Cascadia Mono", monospace;
+        color: var(--muted);
+        border-top: 1px solid var(--ink);
+        padding-top: 10px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="sheet">
+      <div class="masthead">
+        <span class="wordmark">MIO / PLATFORM</span>
+        <span class="meta" id="platform">connecting…</span>
+      </div>
+
+      <h1>Platform API check</h1>
+      <p class="lede">
+        HTTP client and in-app server, notifications, the gallery picker and the
+        Android foreground service. Platform-specific rows report UNSUPPORTED
+        where the capability does not exist.
+      </p>
+
+      <div class="cases" id="cases"></div>
+
+      <div class="colophon">
+        <span id="features">features: ?</span>
+        <span id="stamp">—</span>
+      </div>
+    </div>
+
+    <script>
+      const cases = [
+        ["http.request", "GET https://example.com through Dart, bypassing CORS"],
+        ["http.request body", "POST to the in-app server and read the echo"],
+        ["http.serve + onRequest", "server answers /ping on loopback"],
+        ["http.download", "writes the response into the sandbox"],
+        ["notify.send", "posts a system notification"],
+        ["media.pickImage", "opens the gallery; cancel to keep it open"],
+        ["foreground.start/stop", "starts the Android foreground service"],
+      ];
+
+      const list = document.getElementById("cases");
+      const rows = cases.map(([name, hint], index) => {
+        const row = document.createElement("div");
+        row.className = "case";
+        row.innerHTML =
+          '<span class="no">' + String(index + 1).padStart(2, "0") + "</span>" +
+          '<span><span class="name"></span><span class="detail"></span></span>' +
+          '<span class="status wait">WAIT</span>';
+        row.querySelector(".name").textContent = name;
+        row.querySelector(".detail").textContent = hint;
+        list.appendChild(row);
+        return row;
+      });
+
+      function settle(index, ok, detail) {
+        const row = rows[index];
+        const status = row.querySelector(".status");
+        status.className = "status " + (ok ? "pass" : "fail");
+        status.textContent = ok ? "PASS" : "FAIL";
+        if (detail) row.querySelector(".detail").textContent = detail;
+      }
+
+      function settleState(index, label, detail, className) {
+        const row = rows[index];
+        const status = row.querySelector(".status");
+        status.className = "status " + (className || "wait");
+        status.textContent = label;
+        if (detail) row.querySelector(".detail").textContent = detail;
+      }
+
+      const b64 = {
+        encode(text) {
+          const bytes = new TextEncoder().encode(text);
+          let binary = "";
+          for (const byte of bytes) binary += String.fromCharCode(byte);
+          return btoa(binary);
+        },
+        decode(data) {
+          const binary = atob(data);
+          const bytes = new Uint8Array(binary.length);
+          for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+          return new TextDecoder().decode(bytes);
+        },
+      };
+
+      function finish() {
+        const pass = rows.filter((row) => row.querySelector(".status").textContent === "PASS").length;
+        document.getElementById("stamp").textContent = pass + "/" + rows.length + " pass";
+      }
+
+      async function main() {
+        await window.Mio.ready;
+        const info = await window.Mio.invoke("app.info");
+        document.getElementById("platform").textContent =
+          info.platform + " · api " + info.apiVersion;
+        const features = info.features || {};
+        document.getElementById("features").textContent =
+          "features: " + Object.entries(features).map(([k, v]) => k + "=" + v).join("  ");
+
+        // 1. http.request: an https call the WebView's fetch would face CORS on.
+        try {
+          const response = await window.Mio.invoke("http.request", {
+            url: "https://example.com/",
+            timeoutMs: 15000,
+          });
+          settle(0, response.status === 200 && response.bytes > 0,
+            "status " + response.status + " · " + response.bytes + " bytes");
+        } catch (error) {
+          settle(0, false, String(error.message || error));
+        }
+
+        // 2/3. In-app server, then two requests through it.
+        try {
+          const server = await window.Mio.invoke("http.serve", { port: 0 });
+          const base = "http://127.0.0.1:" + server.port;
+
+          await window.Mio.on("http.request", async (request) => {
+            if (request.path === "/ping") {
+              await window.Mio.invoke("http.respond", {
+                id: request.id,
+                status: 200,
+                headers: { "content-type": "text/plain" },
+                bodyBase64: b64.encode("pong"),
+              });
+              return;
+            }
+            const echo = b64.decode(request.bodyBase64 || "");
+            await window.Mio.invoke("http.respond", {
+              id: request.id,
+              status: 200,
+              headers: { "content-type": "application/json" },
+              bodyBase64: b64.encode(JSON.stringify({ method: request.method, echo })),
+            });
+          });
+
+          const ping = await window.Mio.invoke("http.request", { url: base + "/ping" });
+          settle(2, ping.status === 200 && b64.decode(ping.bodyBase64) === "pong",
+            "port " + server.port + " · " + ping.status + " pong");
+
+          const echo = await window.Mio.invoke("http.request", {
+            url: base + "/echo",
+            method: "POST",
+            headers: { "content-type": "text/plain" },
+            bodyBase64: b64.encode("hello"),
+          });
+          const parsed = JSON.parse(b64.decode(echo.bodyBase64));
+          settle(1, parsed.echo === "hello" && parsed.method === "POST",
+            "POST echoed " + JSON.stringify(parsed.echo));
+
+          // 4. download to the sandbox.
+          const path = "downloads/example.html";
+          const downloaded = await window.Mio.invoke("http.download", {
+            url: "https://example.com/",
+            path,
+            timeoutMs: 15000,
+          });
+          const stat = await window.Mio.invoke("fs.stat", { path });
+          settle(3, downloaded.status === 200 && stat && stat.size > 0,
+            path + " · " + (stat ? stat.size : 0) + " bytes");
+        } catch (error) {
+          settle(1, false, String(error.message || error));
+          settle(2, false, String(error.message || error));
+          settle(3, false, String(error.message || error));
+        }
+
+        // 5. Notification (Android) or unsupported.
+        if (!features.notify) {
+          settleState(4, "SKIP", "not available on " + info.platform, "wait");
+        } else {
+          try {
+            await window.Mio.invoke("notify.send", {
+              title: "Platform check",
+              body: "notify.send works",
+            });
+            settle(4, true, "notification posted");
+          } catch (error) {
+            settle(4, false, String(error.message || error));
+          }
+        }
+
+        // 6. Gallery picker: opens a system UI, so the row is a button.
+        if (!features.media) {
+          settleState(5, "SKIP", "not available on " + info.platform, "wait");
+        } else {
+          settleState(5, "OPEN", "click this row to open the picker", "wait");
+          rows[5].style.cursor = "pointer";
+          rows[5].addEventListener("click", async () => {
+            try {
+              const picked = await window.Mio.invoke("media.pickImage");
+              settle(5, true, picked ? picked.path + " · " + picked.size + " bytes" : "cancelled");
+            } catch (error) {
+              settle(5, false, String(error.message || error));
+            }
+            finish();
+          });
+        }
+
+        // 7. Foreground service.
+        if (!features.foreground) {
+          settleState(6, "SKIP", "not declared or not Android", "wait");
+        } else {
+          try {
+            await window.Mio.invoke("foreground.start", {
+              title: "Platform check",
+              text: "foreground service running",
+            });
+            const started = await window.Mio.invoke("foreground.info");
+            const stopped = await window.Mio.invoke("foreground.stop");
+            settle(6, started.declared === true && stopped.running === false,
+              "started, then stopped");
+          } catch (error) {
+            settle(6, false, String(error.message || error));
+          }
+        }
+
+        finish();
+      }
+
+      main().catch((error) => {
+        document.getElementById("platform").textContent = "error: " + (error.message || error);
+      });
+    </script>
+  </body>
+</html>

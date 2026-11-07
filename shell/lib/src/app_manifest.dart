@@ -10,6 +10,7 @@ class AppManifest {
     this.height = 720,
     this.backgroundColor = '#ffffff',
     this.requiredApiVersion,
+    this.foregroundService = false,
   });
 
   final String id;
@@ -22,6 +23,9 @@ class AppManifest {
 
   /// Minimum Mio API the app was built against, e.g. "1.0.0".
   final String? requiredApiVersion;
+
+  /// Whether the app declared `android.foregroundService` in mio.config.json.
+  final bool foregroundService;
 
   String get title => name;
 
@@ -38,6 +42,9 @@ class AppManifest {
     final requires = json['requires'];
     final requiresMap =
         requires is Map<String, dynamic> ? requires : const <String, dynamic>{};
+    final android = json['android'];
+    final androidMap =
+        android is Map<String, dynamic> ? android : const <String, dynamic>{};
     return AppManifest(
       id: _string(json['id'], fallback.id),
       name: _string(json['name'], fallback.name),
@@ -48,6 +55,7 @@ class AppManifest {
       backgroundColor: _string(windowMap['backgroundColor'], fallback.backgroundColor),
       requiredApiVersion:
           requiresMap['apiVersion'] is String ? requiresMap['apiVersion'] as String : null,
+      foregroundService: androidMap['foregroundService'] == true,
     );
   }
 
@@ -71,6 +79,7 @@ class AppManifest {
         },
         if (requiredApiVersion != null)
           'requires': {'apiVersion': requiredApiVersion},
+        if (foregroundService) 'android': {'foregroundService': true},
       };
 
   static String _string(Object? value, String fallback) {

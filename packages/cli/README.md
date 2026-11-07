@@ -15,7 +15,7 @@ mio create my-app
 ```
 
 ```text
-mio create [target] [--no-install]
+mio create [target]
 mio build [--platform android|windows] [--skip-web] [--template <path>]
 mio dev --platform android|windows [--no-install] [--template <path>]
 mio doctor
@@ -40,8 +40,13 @@ mio doctor
 
 ## create
 
-复制 `templates/web`，把 `@iyexin/mio-api` 复制到项目 `.mio/mio-api`（file dependency），
-避免要求发布 npm 包。默认执行 `npm install`，可用 `--no-install` 跳过。
+复制 `templates/web` 到目标目录，改写 `package.json` 的依赖为 `@iyexin/mio-api@^<版本>`、
+生成应用 id 和 `.gitignore`。`create` 只写文件，不执行安装；装依赖由你自己做：
+
+```bash
+npx @iyexin/mio-cli create my-app
+cd my-app && npm install
+```
 
 ## build
 

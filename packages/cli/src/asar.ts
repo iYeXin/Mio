@@ -35,6 +35,9 @@ export async function createAppAsar(options: CreateAsarOptions): Promise<CreateA
       requires: {
         apiVersion: MIO_API_VERSION,
       },
+      ...(options.config.android?.foregroundService
+        ? { android: { foregroundService: true } }
+        : {}),
       build: {
         cli: MIO_CLI_VERSION,
         api: MIO_API_VERSION,

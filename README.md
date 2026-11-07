@@ -67,7 +67,7 @@ build/mio/windows/My-App/
 | 命名空间 | 内容 |
 | --- | --- |
 | `Mio.app` | 应用元信息、路径、日志、退出 |
-| `Mio.platform` | 平台、架构、能力表 |
+| `Mio.platform` | 平台、架构、能力表、常亮、屏幕方向 |
 | `Mio.fs` | 可写目录内的文件读写 |
 | `Mio.dialog` | 系统文件选择器 |
 | `Mio.clipboard` | 剪贴板 |
@@ -75,6 +75,10 @@ build/mio/windows/My-App/
 | `Mio.windowApi` | 窗口大小、位置、最大化、全屏 |
 | `Mio.nativeApi` | 加载原生库、标量调用、事件回调 |
 | `Mio.processApi` | 拉起子进程、管道、结束进程（Windows） |
+| `Mio.http` | 不受 CORS 限制的请求、下载、本地 HTTP 服务 |
+| `Mio.notify` | 系统通知（Android） |
+| `Mio.media` | 相册/图片选择 |
+| `Mio.foreground` | Android 前台服务（需在配置里声明） |
 
 所有调用都是 Promise，错误是 `MioError`（`code` 为符号，`rpcCode` 为 JSON-RPC 数字）。
 完整签名、事件和错误码见 [docs/api.md](docs/api.md)。

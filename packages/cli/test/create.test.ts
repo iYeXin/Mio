@@ -55,7 +55,7 @@ test("createProject scaffolds a project that depends on the published api packag
   const root = await mkdtemp(join(tmpdir(), "mio-create-"));
   const target = join(root, "my-app");
   try {
-    await createProject({ target, install: false });
+    await createProject({ target });
     const pkg = JSON.parse(await readFile(join(target, "package.json"), "utf8")) as {
       name: string;
       dependencies: Record<string, string>;

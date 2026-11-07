@@ -9,11 +9,9 @@ import {
   safePackageName,
   writeJson,
 } from "./project.js";
-import { runShell } from "./web.js";
 
 export interface CreateOptions {
   target: string;
-  install: boolean;
 }
 
 export async function createProject(options: CreateOptions): Promise<void> {
@@ -68,12 +66,11 @@ export async function createProject(options: CreateOptions): Promise<void> {
   );
 
   console.log(`Created ${target}`);
-  if (options.install) {
-    console.log("Installing web dependencies...");
-    await runShell("npm install", target);
-  } else {
-    console.log(`Next: cd ${basename(target)} && npm install`);
-  }
+  console.log("");
+  console.log("Next:");
+  console.log(`  cd ${basename(target)}`);
+  console.log("  npm install");
+  console.log(`  npx @iyexin/mio-cli dev --platform windows`);
 }
 
 async function firstExisting(candidates: string[]): Promise<string> {
