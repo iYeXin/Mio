@@ -3,6 +3,19 @@
 本文件记录 Mio 的对外变更。版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)；
 `MIO_API_VERSION`（桥契约）与 CLI 版本分开演进，见 [docs/release.md](docs/release.md)。
 
+## 0.1.1 — 2026-11-07
+
+- npm 包改为 `@iyexin` scope：`@iyexin/mio-cli`、`@iyexin/mio-api`、
+  `@iyexin/mio-android-tools`。用法 `npx @iyexin/mio-cli ...`，或全局安装后用 `mio`；
+- `mio create` 直接依赖发布的 `@iyexin/mio-api`，不再把 API 复制进项目；
+- API 收敛（此前没有对外发布，不留兼容层）：
+  - 移除 `dialog.message` / `dialog.confirm`（Flutter 控件，不是系统对话框），
+    `dialog` 只保留系统选择器；
+  - 移除 `fs.readFile` / `fs.writeFile` 的 base64 形态；
+  - 二进制统一为 `fs.readBytes` / `fs.writeBytes` / `fs.blobUrl`；
+- 文档重组：README 重写，调研/决策/验收记录移出仓库；
+- 发布：tag 触发模板构建与 Release，npm 通过 Trusted Publishing 发布（`npm-publish` 环境）。
+
 ## 0.1.0 — 2026-11-07
 
 首个可用版本。

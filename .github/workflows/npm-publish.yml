@@ -1,15 +1,14 @@
 name: Publish npm
 
 # Publishing uses npm Trusted Publishing (OIDC): the runner gets a short-lived
-# token from GitHub, so no NPM_TOKEN secret exists. Two one-time steps happen
-# outside this workflow:
-#   1. the first version of each package is published manually;
-#   2. each package is registered on npmjs.com with this repository/workflow as
-#      its trusted publisher.
-# After that, publishing a GitHub release ships the packages.
+# token from GitHub. The npm package settings name this repository, this
+# workflow and the environment below; no NPM_TOKEN secret exists.
+#
+# Note: a release created with GITHUB_TOKEN does not trigger further workflows,
+# so this runs on the tag push itself rather than on `release: published`.
 on:
-  release:
-    types: [published]
+  push:
+    tags: ["v*"]
   workflow_dispatch:
     inputs:
       dry_run:
@@ -25,6 +24,7 @@ jobs:
   publish:
     name: Publish packages
     runs-on: ubuntu-latest
+    environment: npm-publish
     steps:
       - uses: actions/checkout@v4
 
@@ -45,6 +45,15 @@ jobs:
       - name: Install
         run: pnpm install --frozen-lockfile
 
+      - name: Check version matches the tag
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          if [ "$GITHUB_REF_TYPE" = "tag" ] && [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::package.json is $version but the tag is $GITHUB_REF_NAME"
+            exit 1
+          fi
+          echo "publishing $version"
+
       - name: Build
         run: pnpm -r build
 
@@ -58,10 +67,15 @@ jobs:
           packages=("@iyexin/mio-android-tools" "@iyexin/mio-api" "@iyexin/mio-cli")
           for package in "${packages[@]}"; do
             echo "::group::publish $package"
+            rm -rf /tmp/pack && mkdir -p /tmp/pack
+            # pnpm rewrites workspace:* to real versions; npm publishes the
+            # tarball so provenance is produced by npm itself.
+            pnpm --filter "$package" pack --pack-destination /tmp/pack
+            tarball="$(ls /tmp/pack/*.tgz)"
             if [ "${{ inputs.dry_run }}" = "true" ]; then
-              pnpm --filter "$package" pack --pack-destination /tmp
+              echo "dry run: $tarball"
             else
-              pnpm --filter "$package" publish --access public --provenance --no-git-checks
+              npm publish "$tarball" --access public --provenance
             fi
             echo "::endgroup::"
           done

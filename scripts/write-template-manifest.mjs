@@ -8,7 +8,9 @@ import { readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 const API_VERSION = "1.0.0";
-const templateVersion = process.env.MIO_TEMPLATE_VERSION ?? "0.1.0";
+// The template version follows the CLI release it ships with.
+const rootVersion = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8")).version;
+const templateVersion = process.env.MIO_TEMPLATE_VERSION ?? rootVersion;
 
 const files = [
   { key: "android-universal", name: "mio-shell-universal.apk", abi: "universal", kind: "apk" },

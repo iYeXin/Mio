@@ -41,7 +41,7 @@ function Read-Version([string]$path) {
 # --- versions -------------------------------------------------------------
 
 $rootVersion = Read-Version "package.json"
-Check "root package.json is 0.1.0" { $rootVersion -eq "0.1.0" }
+Check "root package.json has a release version" { $rootVersion -match '^\d+\.\d+\.\d+$' }
 
 foreach ($pkg in @("packages/cli", "packages/api", "packages/android-tools")) {
   Check "$pkg/lib version matches root" {
