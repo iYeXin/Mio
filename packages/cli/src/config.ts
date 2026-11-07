@@ -15,6 +15,16 @@ export interface MioConfig {
     height?: number;
     title?: string;
     backgroundColor?: string;
+    /** Initial position; the window is centred when omitted. */
+    x?: number;
+    y?: number;
+    center?: boolean;
+    resizable?: boolean;
+    /** Set false for a custom title bar; combine with window.startDragging(). */
+    decorations?: boolean;
+    alwaysOnTop?: boolean;
+    minWidth?: number;
+    minHeight?: number;
   };
   web?: {
     outDir?: string;

@@ -12,6 +12,7 @@ import 'asar.dart';
 import 'atomic_file.dart';
 import 'errors.dart';
 import 'device_api.dart';
+import 'extras_api.dart';
 import 'http_api.dart';
 import 'native_manager.dart';
 import 'platform_actions.dart';
@@ -60,11 +61,17 @@ class MioApi with WidgetsBindingObserver {
       emit: emit,
       resolvePath: _resolvePath,
       platformName: platformName,
+      scratchDir: Directory(p.join(_fsRoot.path, '.mio-http')),
     );
     _device = MioDeviceApi(
       platformName: platformName,
       manifest: manifest,
       dataDir: dataDir,
+    );
+    _extras = MioExtrasApi(
+      platformName: platformName,
+      emit: emit,
+      resolvePath: _resolvePath,
     );
   }
 
@@ -80,6 +87,7 @@ class MioApi with WidgetsBindingObserver {
   late final MioNativeManager _nativeManager;
   late final MioHttpApi _http;
   late final MioDeviceApi _device;
+  late final MioExtrasApi _extras;
 
   /// When the shell finished starting; exposed for diagnostics.
   final DateTime _startedAt = DateTime.now().toUtc();
@@ -129,6 +137,8 @@ class MioApi with WidgetsBindingObserver {
             'notify': platformName == 'android',
             'media': platformName == 'android' || platformName == 'windows',
             'foreground': platformName == 'android' && manifest.foregroundService,
+            'tray': platformName == 'windows',
+            'share': platformName == 'android' || platformName == 'windows',
           },
         };
       case 'app.quit':
@@ -187,6 +197,23 @@ class MioApi with WidgetsBindingObserver {
       case 'window.setFullScreen':
         return await _windowCall(
           () => windowActions.setFullScreen(params['fullScreen'] == true),
+        );
+      case 'window.setDecorations':
+        return await _windowCall(
+          () => windowActions.setDecorations(params['decorations'] != false),
+        );
+      case 'window.startDragging':
+        return await _windowCall(() => windowActions.startDragging());
+      case 'window.setResizable':
+        return await _windowCall(
+          () => windowActions.setResizable(params['resizable'] != false),
+        );
+      case 'window.setMinimumSize':
+        return await _windowCall(
+          () => windowActions.setMinimumSize(
+            _requiredInt(params, 'width'),
+            _requiredInt(params, 'height'),
+          ),
         );
       case 'window.setAlwaysOnTop':
         return await _windowCall(
@@ -258,6 +285,9 @@ class MioApi with WidgetsBindingObserver {
               method.startsWith('media.') ||
               method.startsWith('foreground.'):
         return await _device.call(method, params);
+      case final method
+          when method.startsWith('tray.') || method.startsWith('share.'):
+        return await _extras.call(method, params);
       default:
         throw MioApiException(
           'METHOD_NOT_FOUND',
@@ -288,6 +318,7 @@ class MioApi with WidgetsBindingObserver {
     await _nativeManager.close();
     await _processManager.killAll();
     await _http.dispose();
+    await _extras.dispose();
   }
 
   Future<Object?> _windowCall(Future<void> Function() action) async {

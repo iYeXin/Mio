@@ -23,6 +23,10 @@ export interface AppFeatures {
   media: boolean;
   /** Android foreground service, enabled by the app's config. */
   foreground: boolean;
+  /** Windows tray icon. */
+  tray: boolean;
+  /** System share sheet. */
+  share: boolean;
 }
 
 export interface AppInfo {
@@ -444,85 +448,85 @@ export interface HttpRequestOptions {
   url: string;
   method?: string;
   headers?: Record<string, string>;
-  /** Strings are sent as UTF-8; bytes are sent as-is. */
-  body?: string | Uint8Array | ArrayBuffer;
+  /** UTF-8 request body. Binary bodies go through `bodyFile`. */
+  body?: string;
+  /** Sandbox path sent as the request body, streamed by the shell. */
+  bodyFile?: string;
   timeoutMs?: number;
   followRedirects?: boolean;
+  /** Overrides HTTPS_PROXY / HTTP_PROXY for this call. */
+  proxy?: string;
+  /** PEM bundle added to the trust store for this call. */
+  caFile?: string;
+  /** Writes the response to this sandbox path instead of returning text. */
+  saveTo?: string;
+  /** Inline body limit; larger binary responses must use `saveTo`. */
+  maxBytes?: number;
 }
 
 export interface HttpResponse {
   status: number;
   url: string;
   headers: Record<string, string | string[]>;
-  body: Uint8Array;
   bytes: number;
+  contentType?: string;
+  /** Present when the response is textual and fits in `maxBytes`. */
+  text?: string;
+  /** Present when the response body was written to the sandbox. */
+  path?: string;
 }
 
-export interface HttpServerRequest {
-  id: string;
-  method: string;
-  path: string;
-  query: string;
-  headers: Record<string, string | string[]>;
-  remote: string;
-  body: Uint8Array;
-}
-
-export interface HttpServerResponse {
-  status?: number;
+export interface HttpTransferOptions {
+  /** Correlates `http.progress` events; generated when omitted. */
+  id?: string;
+  timeoutMs?: number;
   headers?: Record<string, string>;
-  body?: string | Uint8Array | ArrayBuffer;
+  proxy?: string;
+  caFile?: string;
 }
 
-export type HttpServerHandler = (
-  request: HttpServerRequest,
-) => HttpServerResponse | void | Promise<HttpServerResponse | void>;
+export interface HttpProgress {
+  id: string;
+  direction: "download" | "upload";
+  received: number;
+  total: number | null;
+  ratio: number | null;
+}
 
 /**
  * Requests and a local HTTP server, backed by Dart instead of `fetch()`:
- * no CORS, any method, and access to endpoints a WebView's origin cannot reach.
+ * no CORS, any method, proxy support, and file-to-file streaming for bodies.
  */
 export const http = {
-  async request(options: HttpRequestOptions): Promise<HttpResponse> {
-    const result = await invoke<{
-      status: number;
-      url: string;
-      headers: Record<string, string | string[]>;
-      bodyBase64: string;
-      bytes: number;
-    }>("http.request", {
-      url: options.url,
-      method: options.method,
-      headers: options.headers,
-      bodyBase64: options.body === undefined ? undefined : toBase64(options.body),
-      timeoutMs: options.timeoutMs,
-      followRedirects: options.followRedirects,
-    });
-    return {
-      status: result.status,
-      url: result.url,
-      headers: result.headers,
-      body: fromBase64(result.bodyBase64),
-      bytes: result.bytes,
-    };
-  },
+  request: (options: HttpRequestOptions): Promise<HttpResponse> =>
+    invoke("http.request", { ...options }),
 
-  /** Streams the response straight into a sandbox file. */
-  download: (options: HttpRequestOptions & { path: string }): Promise<{
+  /** Streams the response into a sandbox file, optionally resuming it. */
+  download: (
+    options: HttpTransferOptions & { url: string; path: string; resume?: boolean },
+  ): Promise<{
     status: number;
     path: string;
     bytes: number;
+    transferred: number;
+    resumed: boolean;
     headers: Record<string, string | string[]>;
-  }> =>
-    invoke("http.download", {
-      url: options.url,
-      path: options.path,
-      method: options.method,
-      headers: options.headers,
-      bodyBase64: options.body === undefined ? undefined : toBase64(options.body),
-      timeoutMs: options.timeoutMs,
-      followRedirects: options.followRedirects,
-    }),
+  }> => invoke("http.download", { ...options }),
+
+  /** Streams a sandbox file as the request body. */
+  upload: (
+    options: HttpTransferOptions & {
+      url: string;
+      path: string;
+      method?: string;
+      followRedirects?: boolean;
+    },
+  ): Promise<{
+    status: number;
+    bytes: number;
+    headers: Record<string, string | string[]>;
+    body: string;
+  }> => invoke("http.upload", { ...options }),
 
   /**
    * Starts the in-app server. Defaults to loopback; pass `host: "0.0.0.0"`
@@ -537,31 +541,46 @@ export const http = {
 
   stop: (): Promise<{ stopped: boolean }> => invoke("http.stop"),
 
-  respond: (id: string, response: HttpServerResponse): Promise<void> =>
-    invoke("http.respond", {
-      id,
-      status: response.status,
-      headers: response.headers,
-      bodyBase64: response.body === undefined ? undefined : toBase64(response.body),
-    }),
+  respond: (
+    id: string,
+    response: {
+      status?: number;
+      headers?: Record<string, string>;
+      /** UTF-8 body. */
+      body?: string;
+      /** Sandbox path sent as the body; wins over `body`. */
+      bodyFile?: string;
+    },
+  ): Promise<void> => invoke("http.respond", { id, ...response }),
 
   /**
    * Routes incoming requests to `handler` and answers them automatically.
    * Returning nothing sends `204 No Content`; a thrown error sends `500`.
    */
-  async onRequest(handler: HttpServerHandler): Promise<() => void> {
+  async onRequest(
+    handler: (request: {
+      id: string;
+      method: string;
+      path: string;
+      query: string;
+      headers: Record<string, string | string[]>;
+      remote: string;
+      body: Uint8Array;
+    }) => { status?: number; headers?: Record<string, string>; body?: string } | void
+      | Promise<{ status?: number; headers?: Record<string, string>; body?: string } | void>,
+  ): Promise<() => void> {
     return await Mio.on("http.request", async (data) => {
-      const request = data as Omit<HttpServerRequest, "body"> & { bodyBase64: string };
+      const request = data as {
+        id: string;
+        method: string;
+        path: string;
+        query: string;
+        headers: Record<string, string | string[]>;
+        remote: string;
+        bodyBase64: string;
+      };
       try {
-        const response = (await handler({
-          id: request.id,
-          method: request.method,
-          path: request.path,
-          query: request.query,
-          headers: request.headers,
-          remote: request.remote,
-          body: fromBase64(request.bodyBase64),
-        })) as HttpServerResponse | void;
+        const response = await handler({ ...request, body: fromBase64(request.bodyBase64) });
         await http.respond(request.id, response ?? { status: 204 });
       } catch (error) {
         await http.respond(request.id, {
@@ -572,8 +591,11 @@ export const http = {
       }
     });
   },
-};
 
+  /** Progress for downloads and uploads; throttled by the shell. */
+  onProgress: (handler: (progress: HttpProgress) => void): Promise<() => void> =>
+    Mio.on("http.progress", (data) => handler(data as HttpProgress)),
+};
 export const dialog = {
   openFile: (extensions?: string[]): Promise<string | null> =>
     invoke("dialog.openFile", { extensions }),
@@ -594,7 +616,17 @@ export const notify = {
     title: string;
     body?: string;
     id?: number;
-  }): Promise<{ id: number }> => invoke("notify.send", options),
+  }): Promise<{ id: number; requested?: boolean }> => invoke("notify.send", options),
+  /** Ongoing progress notification (Android); update it from your download loop. */
+  progress: (options: {
+    id?: number;
+    title?: string;
+    text?: string;
+    progress: number;
+    max?: number;
+  }): Promise<{ id: number }> => invoke("notify.progress", options),
+  cancel: (id: number): Promise<{ cancelled: boolean }> =>
+    invoke("notify.cancel", { id }),
 };
 
 export interface PickedImage {
@@ -612,6 +644,9 @@ export const media = {
    * user cancels.
    */
   pickImage: (): Promise<PickedImage | null> => invoke("media.pickImage"),
+  /** Android system photo picker with multi-select; empty when cancelled. */
+  pickImages: (options?: { max?: number }): Promise<PickedImage[]> =>
+    invoke("media.pickImages", options ?? {}),
 };
 
 export const foreground = {
@@ -628,8 +663,42 @@ export const foreground = {
   }): Promise<{ running: boolean }> => invoke("foreground.start", options ?? {}),
   stop: (): Promise<{ running: boolean }> => invoke("foreground.stop"),
   /** `supported` is platform capability; `declared` is the app's config flag. */
-  info: (): Promise<{ supported: boolean; declared: boolean }> =>
+  info: (): Promise<{ supported: boolean; declared: boolean; running: boolean }> =>
     invoke("foreground.info"),
+};
+
+export interface TrayMenuItem {
+  id?: string;
+  label?: string;
+  separator?: boolean;
+}
+
+export const tray = {
+  /**
+   * Windows tray icon. `icon` is a sandbox path to a PNG; menu clicks arrive as
+   * `tray.menu` events, left/right clicks as `tray.click`.
+   */
+  set: (options: {
+    icon?: string;
+    tooltip?: string;
+    menu?: TrayMenuItem[];
+  }): Promise<{ set: boolean }> => invoke("tray.set", options),
+  remove: (): Promise<{ removed: boolean }> => invoke("tray.remove"),
+  onClick: (handler: (event: { button: "left" | "right" }) => void): Promise<() => void> =>
+    Mio.on("tray.click", (data) => handler(data as { button: "left" | "right" })),
+  onMenu: (handler: (event: { id: string; label?: string }) => void): Promise<() => void> =>
+    Mio.on("tray.menu", (data) => handler(data as { id: string; label?: string })),
+};
+
+export const share = {
+  text: (options: { text: string; subject?: string }): Promise<{ status: string }> =>
+    invoke("share.text", options),
+  /** Shares a sandbox file through the system share sheet. */
+  file: (options: {
+    path: string;
+    mimeType?: string;
+    subject?: string;
+  }): Promise<{ status: string }> => invoke("share.file", options),
 };
 
 export const clipboard = {
@@ -663,6 +732,23 @@ export const windowApi = {
     invoke("window.setFullScreen", { fullScreen }),
   setAlwaysOnTop: (alwaysOnTop: boolean): Promise<void> =>
     invoke("window.setAlwaysOnTop", { alwaysOnTop }),
+
+  /** Hides the title bar; pair with `startDragging()` for a custom title bar. */
+  setDecorations: (decorations: boolean): Promise<void> =>
+    invoke("window.setDecorations", { decorations }),
+
+  /** Starts a native drag; call from a title-bar pointer-down handler. */
+  startDragging: (): Promise<void> => invoke("window.startDragging"),
+
+  setResizable: (resizable: boolean): Promise<void> =>
+    invoke("window.setResizable", { resizable }),
+
+  setMinimumSize: (width: number, height: number): Promise<void> =>
+    invoke("window.setMinimumSize", { width, height }),
+
+  /** Fires after moves, resizes and maximize changes (Windows). */
+  onState: (handler: (state: WindowState) => void): Promise<() => void> =>
+    Mio.on("window.state", (data) => handler(data as WindowState)),
 };
 
 export default Mio;

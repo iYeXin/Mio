@@ -44,9 +44,9 @@ node ../../../../packages/cli/dist/bin.js build --platform windows --skip-web
 
 ## platform/ —— HTTP、通知、相册、前台服务
 
-覆盖：`http.request`（https，不走 CORS）、`http.serve` + `http.onRequest`（页面
-自建服务、POST 回显）、`http.download`、`notify.send`（Android）、`media.pickImage`
-（Android 相册 / Windows 文件选择器，需要手动点一下）、`foreground.start/stop`。
+覆盖：`http.request`、`http.serve` + `onRequest`、`http.download`（含进度事件）、
+`http.upload`、`notify.send` / `notify.progress`（Android）、`media.pickImage`（需要手动
+点一下）、`foreground.start/stop/info`、`window.setDecorations`（Windows）。
 
 `android.foregroundService` 已在该应用的 `mio.config.json` 里开启。
 

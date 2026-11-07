@@ -33,15 +33,26 @@ class MioDeviceApi {
       case 'notify.send':
         return await _send(params);
       case 'media.pickImage':
-        return await _pickImage();
+        return await _pickImage(max: 1);
+      case 'media.pickImages':
+        final max = params['max'];
+        return await _pickImages(max: max is int && max > 1 ? max : 0);
+      case 'notify.progress':
+        return await _notifyProgress(params);
+      case 'notify.cancel':
+        return await _notifyCancel(params);
       case 'foreground.start':
         return await _foregroundStart(params);
       case 'foreground.stop':
         return await _foregroundStop();
       case 'foreground.info':
+        final running = platformName == 'android'
+            ? await _foregroundRunning()
+            : false;
         return <String, Object?>{
           'supported': platformName == 'android',
           'declared': manifest.foregroundService,
+          'running': running,
         };
       default:
         throw MioApiException(
@@ -77,7 +88,52 @@ class MioDeviceApi {
     }
   }
 
-  Future<Object?> _pickImage() async {
+  Future<bool> _foregroundRunning() async {
+    try {
+      final result = await _channel.invokeMapMethod<String, Object?>(
+        'foreground.isRunning',
+      );
+      return result?['running'] == true;
+    } on PlatformException {
+      return false;
+    }
+  }
+
+  Future<Object?> _notifyProgress(Map<String, dynamic> params) async {
+    if (platformName != 'android') {
+      throw MioApiException('UNSUPPORTED', 'notify.progress is Android only');
+    }
+    final id = params['id'];
+    try {
+      await _channel.invokeMethod<void>('notify.progress', {
+        'id': id is int ? id : 4002,
+        'title': _string(params, 'title') ?? manifest.name,
+        'text': _string(params, 'text') ?? '',
+        'progress': params['progress'] is int ? params['progress'] : 0,
+        'max': params['max'] is int ? params['max'] : 100,
+      });
+      return <String, Object?>{'id': id is int ? id : 4002};
+    } on PlatformException catch (error) {
+      throw MioApiException('NOTIFY_FAILED', error.message ?? 'progress failed');
+    }
+  }
+
+  Future<Object?> _notifyCancel(Map<String, dynamic> params) async {
+    if (platformName != 'android') {
+      throw MioApiException('UNSUPPORTED', 'notify.cancel is Android only');
+    }
+    final id = params['id'];
+    try {
+      await _channel.invokeMethod<void>('notify.cancel', {
+        'id': id is int ? id : 4001,
+      });
+      return <String, Object?>{'cancelled': true};
+    } on PlatformException catch (error) {
+      throw MioApiException('NOTIFY_FAILED', error.message ?? 'cancel failed');
+    }
+  }
+
+  Future<Object?> _pickImage({int max = 1}) async {
     final directory = mediaDir;
     await directory.create(recursive: true);
 
@@ -129,6 +185,35 @@ class MioDeviceApi {
       'UNSUPPORTED',
       'media.pickImage is not available on $platformName',
     );
+  }
+
+  Future<Object?> _pickImages({int max = 0}) async {
+    if (platformName != 'android') {
+      throw MioApiException('UNSUPPORTED', 'media.pickImages is Android only');
+    }
+    final directory = mediaDir;
+    await directory.create(recursive: true);
+    try {
+      final result = await _channel.invokeListMethod<Object?>(
+        'media.pickImages',
+        {'destination': directory.path, 'max': max},
+      );
+      final items = <Map<String, Object?>>[];
+      for (final item in result ?? const <Object?>[]) {
+        if (item is! Map) continue;
+        items.add(<String, Object?>{
+          'path': p
+              .relative(item['path']! as String, from: p.join(dataDir.path, 'app'))
+              .replaceAll('\\', '/'),
+          'name': item['name'],
+          'mime': item['mime'],
+          'size': item['size'],
+        });
+      }
+      return items;
+    } on PlatformException catch (error) {
+      throw MioApiException('MEDIA_FAILED', error.message ?? 'Could not pick images');
+    }
   }
 
   Future<Object?> _foregroundStart(Map<String, dynamic> params) async {

@@ -31,6 +31,18 @@ export async function createAppAsar(options: CreateAsarOptions): Promise<CreateA
         height: options.config.window?.height ?? 720,
         title: options.config.window?.title ?? options.config.app.name,
         backgroundColor: options.config.window?.backgroundColor ?? "#0f1115",
+        ...(options.config.window?.x !== undefined ? { x: options.config.window.x } : {}),
+        ...(options.config.window?.y !== undefined ? { y: options.config.window.y } : {}),
+        ...(options.config.window?.center === false ? { center: false } : {}),
+        ...(options.config.window?.resizable === false ? { resizable: false } : {}),
+        ...(options.config.window?.decorations === false ? { decorations: false } : {}),
+        ...(options.config.window?.alwaysOnTop ? { alwaysOnTop: true } : {}),
+        ...(options.config.window?.minWidth !== undefined
+          ? { minWidth: options.config.window.minWidth }
+          : {}),
+        ...(options.config.window?.minHeight !== undefined
+          ? { minHeight: options.config.window.minHeight }
+          : {}),
       },
       requires: {
         apiVersion: MIO_API_VERSION,

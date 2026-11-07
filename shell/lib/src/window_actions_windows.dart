@@ -47,6 +47,21 @@ class WindowActionsWindows implements WindowActions {
   Future<void> setAlwaysOnTop(bool alwaysOnTop) => _manager.setAlwaysOnTop(alwaysOnTop);
 
   @override
+  Future<void> setDecorations(bool decorations) async {
+    if (!decorations) await _manager.setAsFrameless();
+  }
+
+  @override
+  Future<void> startDragging() => _manager.startDragging();
+
+  @override
+  Future<void> setResizable(bool resizable) => _manager.setResizable(resizable);
+
+  @override
+  Future<void> setMinimumSize(int width, int height) =>
+      _manager.setMinimumSize(Size(width.toDouble(), height.toDouble()));
+
+  @override
   Future<Map<String, Object?>> getState() async {
     final bounds = await _manager.getBounds();
     return {

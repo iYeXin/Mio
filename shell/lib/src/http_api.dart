@@ -7,18 +7,17 @@ import 'errors.dart';
 
 /// HTTP client and server exposed through the bridge.
 ///
-/// The page's `fetch()` is subject to CORS and to what the WebView allows, so
-/// requests that need cookies, custom methods or no CORS at all go through
-/// Dart's [HttpClient]. The server half lets the app accept connections from
-/// other devices on the LAN, which a WebView alone cannot do.
+/// Binary data never travels through JSON: request bodies come from strings or
+/// sandbox files, responses are either text or a sandbox file the page can read
+/// with `fs.blobUrl`. Requests honour the usual proxy environment variables.
 class MioHttpApi {
   MioHttpApi({
     required this.emit,
     required this.resolvePath,
     required this.platformName,
+    required this.scratchDir,
   });
 
-  /// Event sink used for incoming server requests.
   final void Function(String name, Object? data) emit;
 
   /// Resolves a page-relative path inside the app data directory.
@@ -26,16 +25,19 @@ class MioHttpApi {
 
   final String platformName;
 
+  /// Directory used for response bodies and uploads; inside the sandbox.
+  final Directory scratchDir;
+
   static const int defaultTimeoutMs = 30000;
   static const int maxTimeoutMs = 120000;
-  static const int maxResponseBytes = 32 * 1024 * 1024;
-  static const int defaultMaxBodyBytes = 16 * 1024 * 1024;
+  static const int defaultMaxBodyBytes = 8 * 1024 * 1024;
   static const Duration responseTimeout = Duration(seconds: 60);
+  static const Duration progressInterval = Duration(milliseconds: 120);
 
-  final HttpClient _client = HttpClient();
   HttpServer? _server;
   final Map<String, _PendingResponse> _pending = <String, _PendingResponse>{};
   int _nextRequestId = 1;
+  int _nextTransferId = 1;
 
   Future<Object?> call(String method, Map<String, dynamic> params) async {
     switch (method) {
@@ -43,6 +45,8 @@ class MioHttpApi {
         return await _request(params);
       case 'http.download':
         return await _download(params);
+      case 'http.upload':
+        return await _upload(params);
       case 'http.serve':
         return await _serve(params);
       case 'http.respond':
@@ -57,140 +61,392 @@ class MioHttpApi {
     }
   }
 
-  // ---------------------------------------------------------------- requests
+  // --------------------------------------------------------------- transfers
 
   Future<Object?> _request(Map<String, dynamic> params) async {
-    final response = await _send(params);
+    final client = _clientFor(params);
+    final response = await _send(client, params);
+    final headers = _headersToJson(response.headers);
+    final contentType = response.headers.contentType?.mimeType ?? '';
+    final saveTo = _optionalString(params, 'saveTo');
+
     try {
-      final bytes = await _readBody(response, maxResponseBytes);
+      if (saveTo != null) {
+        final path = resolvePath(saveTo);
+        final bytes = await _writeStream(
+          response,
+          path,
+          expected: response.contentLength >= 0 ? response.contentLength : null,
+        );
+        return <String, Object?>{
+          'status': response.statusCode,
+          'url': _finalUrl(params, response),
+          'headers': headers,
+          'bytes': bytes,
+          'path': saveTo,
+        };
+      }
+
+      final isText = _isTextual(contentType);
+      final maxBytes = _optionalInt(params, 'maxBytes') ?? defaultMaxBodyBytes;
+      final builder = BytesBuilder(copy: false);
+      await for (final chunk in response) {
+        builder.add(chunk);
+        if (builder.length > maxBytes && !isText) {
+          throw MioApiException(
+            'HTTP_RESPONSE_TOO_LARGE',
+            'Response exceeds $maxBytes bytes; use saveTo or http.download',
+            {'limit': maxBytes, 'contentType': contentType},
+          );
+        }
+      }
+      final bytes = builder.takeBytes();
+      if (isText && bytes.length <= maxBytes) {
+        return <String, Object?>{
+          'status': response.statusCode,
+          'url': _finalUrl(params, response),
+          'headers': headers,
+          'bytes': bytes.length,
+          'contentType': contentType,
+          'text': utf8.decode(bytes, allowMalformed: true),
+        };
+      }
+      final path = await _scratchFile('response');
+      await File(resolvePath(path)).writeAsBytes(bytes, flush: true);
       return <String, Object?>{
         'status': response.statusCode,
-        'headers': _headersToJson(response.headers),
-        'url': response.redirects.isEmpty
-            ? params['url']
-            : response.redirects.last.location.toString(),
-        'bodyBase64': base64Encode(bytes),
+        'url': _finalUrl(params, response),
+        'headers': headers,
         'bytes': bytes.length,
+        'contentType': contentType,
+        'path': path,
       };
-    } catch (_) {
-      rethrow;
+    } finally {
+      client.close(force: true);
     }
   }
 
   Future<Object?> _download(Map<String, dynamic> params) async {
-    final path = resolvePath(_requiredString(params, 'path'));
-    final response = await _send(params);
-    final file = File(path);
+    final saveTo = resolvePath(_requiredString(params, 'path'));
+    final resume = params['resume'] == true;
+    final transferId = _optionalString(params, 'id') ?? 'download-${_nextTransferId++}';
+
+    final file = File(saveTo);
+    var startAt = 0;
+    if (resume && await file.exists()) startAt = await file.length();
+
+    final request = Map<String, dynamic>.from(params);
+    if (startAt > 0) {
+      final headers = Map<String, dynamic>.from(
+        (params['headers'] as Map?) ?? const <String, dynamic>{},
+      );
+      headers['range'] = 'bytes=$startAt-';
+      request['headers'] = headers;
+    }
+
+    final client = _clientFor(params);
     try {
-      await file.parent.create(recursive: true);
-      final temporary = File('${file.path}.part');
-      final sink = temporary.openWrite();
-      var bytes = 0;
-      try {
-        await response.forEach((chunk) {
-          bytes += chunk.length;
-          sink.add(chunk);
-        });
-        await sink.flush();
-      } finally {
-        await sink.close();
+      final response = await _send(client, request);
+      if (startAt > 0 && response.statusCode == HttpStatus.ok) {
+        // The server ignored the range: start over.
+        startAt = 0;
       }
-      if (await file.exists()) await file.delete();
-      await temporary.rename(file.path);
+      if (startAt > 0 && response.statusCode != HttpStatus.partialContent) {
+        await response.drain<void>();
+        throw MioApiException(
+          'HTTP_RANGE_UNSUPPORTED',
+          'Server did not honour the resume range (status ${response.statusCode})',
+        );
+      }
+
+      final expected = response.contentLength >= 0 ? response.contentLength : null;
+      final total = expected == null ? null : startAt + expected;
+      final bytes = await _writeStream(
+        response,
+        saveTo,
+        transfer: _Transfer(
+          id: transferId,
+          direction: 'download',
+          emit: emit,
+          offset: startAt,
+          total: total,
+        ),
+        expected: expected,
+        appendFrom: startAt,
+      );
       return <String, Object?>{
         'status': response.statusCode,
         'path': params['path'],
-        'headers': _headersToJson(response.headers),
         'bytes': bytes,
+        'transferred': bytes - startAt,
+        'headers': _headersToJson(response.headers),
+        'resumed': startAt > 0,
       };
-    } on FileSystemException catch (error) {
-      throw MioApiException('HTTP_ERROR', error.message, {'path': error.path});
     } finally {
-      // The stream is already consumed by the forEach above; nothing to drain.
+      client.close(force: true);
     }
   }
 
-  Future<HttpClientResponse> _send(Map<String, dynamic> params) async {
+  Future<Object?> _upload(Map<String, dynamic> params) async {
+    final source = resolvePath(_requiredString(params, 'path'));
+    final file = File(source);
+    if (!await file.exists()) {
+      throw MioApiException('HTTP_ERROR', 'Upload source not found', {
+        'path': params['path'],
+      });
+    }
+    final length = await file.length();
     final url = Uri.parse(_requiredString(params, 'url'));
+    _checkScheme(url);
+    final method = (_optionalString(params, 'method') ?? 'PUT').toUpperCase();
+    final transferId = _optionalString(params, 'id') ?? 'upload-${_nextTransferId++}';
+    final transfer = _Transfer(
+      id: transferId,
+      direction: 'upload',
+      emit: emit,
+      offset: 0,
+      total: length,
+    );
+
+    final client = _clientFor(params);
+    try {
+      final request = await client.openUrl(method, url);
+      request.followRedirects = params['followRedirects'] != false;
+      _applyHeaders(request, params['headers']);
+      request.headers.contentLength = length;
+      if (!request.headers.value('content-type').toString().contains('/')) {
+        request.headers.contentType = ContentType.binary;
+      }
+      var sent = 0;
+      await for (final chunk in file.openRead()) {
+        request.add(chunk);
+        sent += chunk.length;
+        transfer.update(sent);
+      }
+      final response = await request.close().timeout(_timeout(params));
+      final body = BytesBuilder(copy: false);
+      await for (final chunk in response) {
+        body.add(chunk);
+        if (body.length > 1024 * 1024) break;
+      }
+      return <String, Object?>{
+        'status': response.statusCode,
+        'bytes': sent,
+        'headers': _headersToJson(response.headers),
+        'body': utf8.decode(body.takeBytes(), allowMalformed: true),
+      };
+    } on TimeoutException {
+      throw MioApiException('HTTP_TIMEOUT', 'Upload timed out');
+    } finally {
+      client.close(force: true);
+    }
+  }
+
+  Future<int> _writeStream(
+    HttpClientResponse response,
+    String path, {
+    _Transfer? transfer,
+    int? expected,
+    int appendFrom = 0,
+  }) async {
+    final target = File(path);
+    await target.parent.create(recursive: true);
+    final part = File('${target.path}.part');
+
+    if (appendFrom > 0) {
+      // The existing file holds the prefix we asked the server to skip.
+      if (await target.exists()) {
+        if (await part.exists()) await part.delete();
+        await target.rename(part.path);
+      }
+    } else if (await part.exists()) {
+      await part.delete();
+    }
+
+    final sink = part.openWrite(
+      mode: appendFrom > 0 ? FileMode.append : FileMode.write,
+    );
+    var received = appendFrom;
+    try {
+      await for (final chunk in response) {
+        sink.add(chunk);
+        received += chunk.length;
+        transfer?.update(received);
+      }
+      await sink.flush();
+    } finally {
+      await sink.close();
+    }
+
+    if (expected != null && received - appendFrom != expected) {
+      await part.delete().catchError((_) => part);
+      throw MioApiException('HTTP_INCOMPLETE', 'Transfer stopped early', {
+        'expected': expected,
+        'received': received - appendFrom,
+      });
+    }
+    if (await target.exists()) await target.delete();
+    await part.rename(target.path);
+    return received;
+  }
+
+  // ---------------------------------------------------------------- requests
+
+  Future<HttpClientResponse> _send(
+    HttpClient client,
+    Map<String, dynamic> params,
+  ) async {
+    final url = Uri.parse(_requiredString(params, 'url'));
+    _checkScheme(url);
+    final method = (_optionalString(params, 'method') ?? 'GET').toUpperCase();
+    final timeout = _timeout(params);
+    client.connectionTimeout = timeout;
+
+    try {
+      final request = await client.openUrl(method, url).timeout(timeout);
+      request.followRedirects = params['followRedirects'] != false;
+      _applyHeaders(request, params['headers']);
+
+      final body = params['body'];
+      if (body is String && body.isNotEmpty) {
+        final bytes = utf8.encode(body);
+        request.headers.contentLength = bytes.length;
+        request.add(bytes);
+      }
+      final bodyFile = _optionalString(params, 'bodyFile');
+      if (bodyFile != null) {
+        final bytes = await File(resolvePath(bodyFile)).readAsBytes();
+        request.headers.contentLength = bytes.length;
+        request.add(bytes);
+      }
+      return await request.close().timeout(timeout);
+    } on TimeoutException {
+      throw MioApiException(
+        'HTTP_TIMEOUT',
+        'Request timed out after ${timeout.inMilliseconds} ms',
+      );
+    } on SocketException catch (error) {
+      throw MioApiException('HTTP_ERROR', error.message, {
+        'osError': error.osError?.message,
+      });
+    } on HandshakeException catch (error) {
+      throw MioApiException('HTTP_TLS_ERROR', error.message);
+    } on HttpException catch (error) {
+      throw MioApiException('HTTP_ERROR', error.message);
+    } on FormatException catch (error) {
+      throw MioApiException('HTTP_BAD_URL', error.message);
+    }
+  }
+
+  void _applyHeaders(HttpClientRequest request, Object? value) {
+    if (value is! Map) return;
+    value.forEach((key, headerValue) {
+      if (headerValue == null || key == null) return;
+      request.headers.set('$key', '$headerValue');
+    });
+  }
+
+  HttpClient _clientFor(Map<String, dynamic> params) {
+    final client = HttpClient()..autoUncompress = true;
+    final proxy = _resolveProxy(params);
+    if (proxy != null) {
+      client.findProxy = (uri) => _proxyFor(uri, proxy);
+    }
+    final caFile = _optionalString(params, 'caFile');
+    if (caFile != null) {
+      final context = SecurityContext(withTrustedRoots: true)
+        ..setTrustedCertificates(resolvePath(caFile));
+      return HttpClient(context: context)..autoUncompress = true;
+    }
+    return client;
+  }
+
+  String? _resolveProxy(Map<String, dynamic> params) {
+    final explicit = _optionalString(params, 'proxy');
+    if (explicit != null) return explicit;
+    final env = Platform.environment;
+    final candidates = [
+      env['HTTPS_PROXY'],
+      env['https_proxy'],
+      env['HTTP_PROXY'],
+      env['http_proxy'],
+      env['ALL_PROXY'],
+    ];
+    for (final candidate in candidates) {
+      if (candidate != null && candidate.trim().isNotEmpty) return candidate.trim();
+    }
+    return null;
+  }
+
+  String _proxyFor(Uri uri, String proxy) {
+    final noProxy = Platform.environment['NO_PROXY'] ??
+        Platform.environment['no_proxy'] ??
+        '';
+    final host = uri.host.toLowerCase();
+    final bypass = noProxy
+        .split(',')
+        .map((entry) => entry.trim().toLowerCase())
+        .where((entry) => entry.isNotEmpty)
+        .any((entry) => entry == '*' || host == entry || host.endsWith('.$entry'));
+    if (bypass) return 'DIRECT';
+    final normalized = proxy.contains('://') ? proxy : 'http://$proxy';
+    final parsed = Uri.tryParse(normalized);
+    if (parsed == null || parsed.host.isEmpty) return 'DIRECT';
+    final scheme = parsed.scheme == 'https' ? 'HTTPS' : 'PROXY';
+    return '$scheme ${parsed.host}:${parsed.port == 0 ? 8080 : parsed.port}';
+  }
+
+  Duration _timeout(Map<String, dynamic> params) {
+    final ms = _optionalInt(params, 'timeoutMs') ?? defaultTimeoutMs;
+    return Duration(milliseconds: ms.clamp(1000, maxTimeoutMs));
+  }
+
+  void _checkScheme(Uri url) {
     if (url.scheme != 'http' && url.scheme != 'https') {
       throw MioApiException(
         'HTTP_BAD_URL',
         'Only http and https URLs are allowed',
       );
     }
-
-    final method = (_optionalString(params, 'method') ?? 'GET').toUpperCase();
-    final timeoutMs = _optionalInt(params, 'timeoutMs') ?? defaultTimeoutMs;
-    final followRedirects = params['followRedirects'] != false;
-    _client.connectionTimeout = Duration(
-      milliseconds: timeoutMs.clamp(1000, maxTimeoutMs),
-    );
-
-    try {
-      final request = await _client.openUrl(method, url).timeout(
-            Duration(milliseconds: timeoutMs.clamp(1000, maxTimeoutMs)),
-          );
-      request.followRedirects = followRedirects;
-      final headers = params['headers'];
-      if (headers is Map) {
-        headers.forEach((key, value) {
-          if (value != null) request.headers.set('$key', '$value');
-        });
-      }
-      final body = params['bodyBase64'];
-      if (body is String && body.isNotEmpty) {
-        final bytes = base64Decode(body);
-        request.contentLength = bytes.length;
-        request.add(bytes);
-      }
-      return await request.close().timeout(
-            Duration(milliseconds: timeoutMs.clamp(1000, maxTimeoutMs)),
-          );
-    } on TimeoutException {
-      throw MioApiException(
-        'HTTP_TIMEOUT',
-        'Request timed out after $timeoutMs ms',
-      );
-    } on SocketException catch (error) {
-      throw MioApiException('HTTP_ERROR', error.message, {
-        'osError': error.osError?.message,
-      });
-    } on HttpException catch (error) {
-      throw MioApiException('HTTP_ERROR', error.message);
-    } on FormatException catch (error) {
-      throw MioApiException('HTTP_ERROR', error.message);
-    }
   }
 
-  Future<Uint8List> _readBody(HttpClientResponse response, int limit) async {
-    final builder = BytesBuilder(copy: false);
-    await for (final chunk in response) {
-      builder.add(chunk);
-      if (builder.length > limit) {
-        throw MioApiException(
-          'HTTP_RESPONSE_TOO_LARGE',
-          'Response exceeds $limit bytes; use http.download instead',
-          {'limit': limit},
-        );
+  bool _isTextual(String contentType) {
+    if (contentType.isEmpty) return false;
+    return contentType.startsWith('text/') ||
+        contentType.contains('json') ||
+        contentType.contains('xml') ||
+        contentType.contains('javascript') ||
+        contentType.contains('x-www-form-urlencoded') ||
+        contentType.contains('svg');
+  }
+
+  String _finalUrl(Map<String, dynamic> params, HttpClientResponse response) {
+    if (response.redirects.isEmpty) return params['url'] as String;
+    return response.redirects.last.location.toString();
+  }
+
+  Future<String> _scratchFile(String prefix) async {
+    await scratchDir.create(recursive: true);
+    // Keep the scratch directory from growing without bound.
+    await for (final entity in scratchDir.list()) {
+      if (entity is File) {
+        final stat = await entity.stat();
+        if (DateTime.now().difference(stat.modified) > const Duration(hours: 6)) {
+          await entity.delete().catchError((_) => entity);
+        }
       }
     }
-    return builder.takeBytes();
+    final name = '$prefix-${DateTime.now().microsecondsSinceEpoch}.bin';
+    final relative = _relativeToSandbox(File('${scratchDir.path}/$name'));
+    return relative;
   }
 
-  Map<String, Object?> _requestHeaders(HttpRequest request) {
-    final result = <String, Object?>{};
-    request.headers.forEach((name, values) {
-      result[name.toLowerCase()] = values.length == 1 ? values.first : values;
-    });
-    return result;
-  }
-
-  Map<String, Object?> _headersToJson(HttpHeaders headers) {
-    final result = <String, Object?>{};
-    headers.forEach((name, values) {
-      result[name.toLowerCase()] = values.length == 1 ? values.first : values;
-    });
-    return result;
+  String _relativeToSandbox(File file) {
+    final sandbox = resolvePath('.');
+    final relative = file.path.startsWith(sandbox)
+        ? file.path.substring(sandbox.length)
+        : file.path;
+    return relative.replaceAll('\\', '/').replaceAll(RegExp(r'^/+'), '');
   }
 
   // ------------------------------------------------------------------ server
@@ -206,7 +462,7 @@ class MioHttpApi {
 
     final host = _optionalString(params, 'host') ?? '127.0.0.1';
     final port = _optionalInt(params, 'port') ?? 0;
-    final maxBodyBytes = _optionalInt(params, 'maxBodyBytes') ?? defaultMaxBodyBytes;
+    final maxBodyBytes = _optionalInt(params, 'maxBodyBytes') ?? 16 * 1024 * 1024;
 
     try {
       final server = await HttpServer.bind(host, port, shared: false);
@@ -261,14 +517,11 @@ class MioHttpApi {
 
       final response = await pending.completer.future.timeout(
         responseTimeout,
-        onTimeout: () {
-          request.response.statusCode = HttpStatus.gatewayTimeout;
-          return _ServerResponse(
-            status: HttpStatus.gatewayTimeout,
-            headers: const <String, String>{},
-            body: Uint8List(0),
-          );
-        },
+        onTimeout: () => _ServerResponse(
+          status: HttpStatus.gatewayTimeout,
+          headers: const <String, String>{},
+          body: Uint8List(0),
+        ),
       );
 
       request.response.statusCode = response.status;
@@ -297,17 +550,22 @@ class MioHttpApi {
         'id': id,
       });
     }
-    final body = params['bodyBase64'];
     pending.completer.complete(
       _ServerResponse(
         status: _optionalInt(params, 'status') ?? 200,
         headers: _stringHeaders(params['headers']),
-        body: body is String && body.isNotEmpty
-            ? base64Decode(body)
-            : Uint8List(0),
+        body: _bodyBytes(params),
       ),
     );
     return null;
+  }
+
+  Uint8List _bodyBytes(Map<String, dynamic> params) {
+    final text = params['body'];
+    if (text is String) return Uint8List.fromList(utf8.encode(text));
+    final path = _optionalString(params, 'bodyFile');
+    if (path != null) return File(resolvePath(path)).readAsBytesSync();
+    return Uint8List(0);
   }
 
   Future<Object?> _stop() async {
@@ -329,10 +587,25 @@ class MioHttpApi {
 
   Future<void> dispose() async {
     await _stop();
-    _client.close(force: true);
   }
 
   // ------------------------------------------------------------------ helpers
+
+  Map<String, Object?> _requestHeaders(HttpRequest request) {
+    final result = <String, Object?>{};
+    request.headers.forEach((name, values) {
+      result[name.toLowerCase()] = values.length == 1 ? values.first : values;
+    });
+    return result;
+  }
+
+  Map<String, Object?> _headersToJson(HttpHeaders headers) {
+    final result = <String, Object?>{};
+    headers.forEach((name, values) {
+      result[name.toLowerCase()] = values.length == 1 ? values.first : values;
+    });
+    return result;
+  }
 
   Map<String, String> _stringHeaders(Object? value) {
     if (value is! Map) return const <String, String>{};
@@ -367,7 +640,7 @@ class _PendingResponse {
 }
 
 class _ServerResponse {
-  const _ServerResponse({
+  _ServerResponse({
     required this.status,
     required this.headers,
     required this.body,
@@ -376,4 +649,36 @@ class _ServerResponse {
   final int status;
   final Map<String, String> headers;
   final Uint8List body;
+}
+
+/// Emits throttled progress events for a download or upload.
+class _Transfer {
+  _Transfer({
+    required this.id,
+    required this.direction,
+    required this.emit,
+    required this.offset,
+    required this.total,
+  });
+
+  final String id;
+  final String direction;
+  final void Function(String name, Object? data) emit;
+  final int offset;
+  final int? total;
+
+  DateTime _last = DateTime.fromMillisecondsSinceEpoch(0);
+
+  void update(int received) {
+    final now = DateTime.now();
+    if (now.difference(_last) < MioHttpApi.progressInterval) return;
+    _last = now;
+    emit('http.progress', <String, Object?>{
+      'id': id,
+      'direction': direction,
+      'received': received,
+      'total': total,
+      'ratio': total == null || total == 0 ? null : received / total!,
+    });
+  }
 }

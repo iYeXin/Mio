@@ -120,6 +120,24 @@ window.Mio.writeBlob(path, bytes); // -> Promise<void>
 | `dialog.saveFile(suggestedName?)` | 选择保存位置，返回路径或 null |
 | `dialog.openFiles(extensions?)` | 多选文件，返回路径数组（取消时为空数组） |
 
+## tray（Windows）
+
+| 方法 | 说明 |
+|---|---|
+| `tray.set({ icon?, tooltip?, menu? })` | 设置托盘图标/提示/菜单；`icon` 是沙箱内的 PNG 路径 |
+| `tray.remove()` | 移除托盘 |
+| `tray.onClick(handler)` | `{ button: "left" \| "right" }` |
+| `tray.onMenu(handler)` | `{ id, label }`，`id` 取自菜单项 |
+
+## share
+
+| 方法 | 说明 |
+|---|---|
+| `share.text({ text, subject? })` | 系统分享文本 |
+| `share.file({ path, mimeType?, subject? })` | 分享沙箱文件 |
+
+Android 走 `Intent.ACTION_SEND`，Windows 走系统分享面板；不可用时返回 `UNSUPPORTED`。
+
 ## clipboard
 
 | 方法 | 说明 |
@@ -137,22 +155,43 @@ window.Mio.writeBlob(path, bytes); // -> Promise<void>
 
 ## http
 
-WebView 里的 `fetch()` 受同源策略和 CORS 限制，也发不出某些请求。`http` 由 Dart 执行，
-没有这些限制；同一套 API 还能在应用内起一个 HTTP 服务，供局域网里的其他设备访问。
+WebView 的 `fetch()` 受同源策略和 CORS 限制。`http` 由 Dart 执行，没有这些限制；二进制
+不经 base64：请求体来自字符串或沙箱文件，响应要么是文本，要么落到沙箱文件里。
+
+```ts
+const r = await http.request({ url: "https://api.github.com/repos/iYeXin/Mio" });
+r.status;      // 200
+r.text;        // 文本响应体（content-type 是文本类且不超过 maxBytes）
+r.path;        // 二进制响应体所在的沙箱路径，可用 fs.blobUrl(path) 读取
+
+await http.download({ url, path: "downloads/app.zip", id: "zip", resume: true });
+await http.upload({ url: "https://example.com/put", path: "downloads/app.zip" });
+```
 
 | 方法 | 说明 |
 |---|---|
-| `http.request({ url, method?, headers?, body?, timeoutMs?, followRedirects? })` | 返回 `{ status, url, headers, body, bytes }`，`body` 是 `Uint8Array` |
-| `http.download({ url, path, ... })` | 把响应流式写入沙箱文件，返回 `{ status, path, bytes, headers }` |
-| `http.serve({ host?, port?, maxBodyBytes? })` | 启动本地服务，返回 `{ host, port }`；`port: 0` 由系统分配 |
+| `http.request({ url, method?, headers?, body?, bodyFile?, timeoutMs?, followRedirects?, proxy?, caFile?, saveTo?, maxBytes? })` | 返回 `{ status, url, headers, bytes, contentType, text?, path? }` |
+| `http.download({ url, path, resume?, id?, ... })` | 流式写文件，支持 `Range` 续传，返回 `{ status, path, bytes, transferred, resumed }` |
+| `http.upload({ url, path, method?, id?, ... })` | 把沙箱文件作为请求体流式上传，返回 `{ status, bytes, headers, body }` |
+| `http.serve({ host?, port?, maxBodyBytes? })` | 启动本地服务，返回 `{ host, port }` |
 | `http.stop()` | 关闭服务 |
-| `http.respond(id, { status?, headers?, body? })` | 回应一次请求 |
-| `http.onRequest(handler)` | 订阅 `http.request` 并自动回应；返回取消函数 |
+| `http.respond(id, { status?, headers?, body?, bodyFile? })` | 回应一次请求 |
+| `http.onRequest(handler)` | 订阅并自动回应，返回取消函数 |
+| `http.onProgress(handler)` | 订阅 `http.progress`：`{ id, direction, received, total, ratio }` |
 
-`http.request` 的响应上限是 32 MB，超过会报 `HTTP_RESPONSE_TOO_LARGE`；大文件用
-`http.download`。只允许 `http` / `https`。
+规则：
 
-服务默认绑定 `127.0.0.1`；要接受局域网连接，显式传 `host: "0.0.0.0"`。每个请求会以
+- `body` 是 UTF-8 字符串；二进制请求体用 `bodyFile`（沙箱路径），不经过 JSON；
+- 响应是文本类（`text/*`、`application/json`、xml…）且不超过 `maxBytes`（默认 8 MB）时
+  直接回 `text`；否则写入沙箱，回 `path`，页面用 `fs.blobUrl(path)` 读取；
+- `saveTo` 直接把响应流写进指定文件，返回 `path`；
+- 只允许 http/https；
+- 代理：`proxy` 参数 > `HTTPS_PROXY`/`HTTP_PROXY`/`ALL_PROXY` 环境变量；`NO_PROXY` 生效；
+- `caFile` 指向沙箱里的 PEM，追加到信任链（自签/内网 CA）；
+- `http.download` 校验 `Content-Length`，不匹配报 `HTTP_INCOMPLETE`；续传时文件写到
+  `.part`，校验通过再改名。
+
+服务默认绑定 `127.0.0.1`；要接受局域网连接，显式传 `host: "0.0.0.0"`。每个请求以
 `http.request` 事件推给页面：
 
 ```ts
@@ -166,13 +205,14 @@ await http.onRequest(async (request) => {
 ```
 
 事件数据：`{ id, method, path, query, headers, remote, body: Uint8Array }`。页面 60 秒内
-不回应，服务返回 504；`body` 超过 `maxBodyBytes`（默认 16 MB）返回 413。
-
+不回应，服务返回 504；请求体超过 `maxBodyBytes`（默认 16 MB）返回 413。
 ## notify
 
 | 方法 | 说明 |
 |---|---|
-| `notify.send({ title, body?, id? })` | 系统通知，Android only；Android 13+ 首次调用时请求通知权限 |
+| `notify.send({ title, body?, id? })` | 系统通知，Android only；Android 13+ 首次调用请求权限，立即返回 |
+| `notify.progress({ id?, title?, text?, progress, max? })` | 常驻进度通知，适合下载；完成后用 `notify.cancel(id)` |
+| `notify.cancel(id)` | 取消通知 |
 
 Windows 没有对应实现，调用返回 `UNSUPPORTED`。
 
@@ -181,6 +221,7 @@ Windows 没有对应实现，调用返回 `UNSUPPORTED`。
 | 方法 | 说明 |
 |---|---|
 | `media.pickImage()` | 打开系统相册（Windows 上是文件选择器），把图片复制到沙箱 `media/`，返回 `{ path, name, mime, size }` 或 `null` |
+| `media.pickImages({ max? })` | 多选；Android 13+ 走系统 Photo Picker，取消时返回空数组 |
 
 `path` 是相对沙箱的路径，可以直接交给 `fs.readBytes` / `fs.blobUrl`。
 
@@ -197,7 +238,7 @@ Android 前台服务：带一个常驻通知，让进程在后台继续存活（
 |---|---|
 | `foreground.start({ title?, text? })` | 启动服务并显示常驻通知 |
 | `foreground.stop()` | 停止服务 |
-| `foreground.info()` | `{ supported, declared }` |
+| `foreground.info()` | `{ supported, declared, running }` |
 
 未声明时调用 `foreground.start` 会失败（`FORBIDDEN`）；非 Android 平台返回
 `UNSUPPORTED`。服务类型声明为 `dataSync`，Android 14+ 需要
@@ -355,6 +396,11 @@ await processApi.onExit(({ id, code }) => console.log(id, "exited", code));
 | `windowApi.setFullScreen(bool)` | 全屏切换 |
 | `windowApi.setAlwaysOnTop(bool)` | 置顶 |
 | `windowApi.setSize(width, height)` | 设置窗口尺寸 |
+| `windowApi.setDecorations(bool)` | 去掉/恢复标题栏；配合 `startDragging()` 自绘标题栏 |
+| `windowApi.startDragging()` | 开始原生拖动，从自绘标题栏的 pointer-down 调用 |
+| `windowApi.setResizable(bool)` | 是否允许缩放 |
+| `windowApi.setMinimumSize(width, height)` | 最小尺寸 |
+| `windowApi.onState(handler)` | 移动/缩放/最大化后推送 `window.state` |
 
 Android 上 `windowApi` 返回 `supported: false`，动作调用会抛 `UNSUPPORTED`。
 
@@ -364,6 +410,10 @@ Android 上 `windowApi` 返回 `supported: false`，动作调用会抛 `UNSUPPOR
 |---|---|
 | `bridge.state` | `{ state: "connecting" \| "open" \| "closed" }` |
 | `http.request` | `{ id, method, path, query, headers, remote, bodyBase64 }`，原始 bridge 数据是 base64 |
+| `http.progress` | `{ id, direction, received, total, ratio }`，约 120 ms 节流 |
+| `window.state` | `{ x, y, width, height, isMaximized, isFullScreen }`（Windows） |
+| `tray.click` | `{ button: "left" \| "right" }`（Windows） |
+| `tray.menu` | `{ id, label }`（Windows） |
 | `app.lifecycle` | `{ state: "resumed" \| "inactive" \| "paused" \| "detached" \| ... }` |
 | `process.stdout` / `process.stderr` | `{ id, pid, data }`，`data` 是 base64 分块（`processApi.onStdout` 已解码） |
 | `process.exit` | `{ id, pid, code, signal, executable }` |
@@ -429,6 +479,12 @@ Promise 会以 `MioError` 拒绝，带 `code`、`message`、`data`：
 | `NOTIFY_FAILED` | 通知发送失败 |
 | `MEDIA_FAILED` | 选择图片失败 |
 | `FOREGROUND_FAILED` | 前台服务启动/停止失败 |
+| `HTTP_INCOMPLETE` | 传输提前结束，与 `Content-Length` 不符 |
+| `HTTP_RANGE_UNSUPPORTED` | 续传请求没有被服务器接受 |
+| `HTTP_TLS_ERROR` | TLS 握手或证书校验失败（可用 `caFile` 追加 CA） |
+| `TRAY_ICON_MISSING` | 托盘图标路径不存在 |
+| `SHARE_FAILED` | 分享失败 |
+| `SHARE_FILE_MISSING` | 要分享的文件不存在 |
 | `FORBIDDEN` | 应用配置未声明该能力（如 `android.foregroundService`） |
 | `MIO_TIMEOUT` | 调用超时（30 秒） |
 | `MIO_DISCONNECTED` | WebSocket 断开 |

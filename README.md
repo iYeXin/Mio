@@ -79,6 +79,8 @@ build/mio/windows/My-App/
 | `Mio.notify` | 系统通知（Android） |
 | `Mio.media` | 相册/图片选择 |
 | `Mio.foreground` | Android 前台服务（需在配置里声明） |
+| `Mio.tray` | Windows 托盘图标与菜单 |
+| `Mio.share` | 系统分享（文本 / 文件） |
 
 所有调用都是 Promise，错误是 `MioError`（`code` 为符号，`rpcCode` 为 JSON-RPC 数字）。
 完整签名、事件和错误码见 [docs/api.md](docs/api.md)。
@@ -126,7 +128,11 @@ npx @iyexin/mio-cli build --template ./my-template.apk
 ```json
 {
   "app": { "id": "dev.example.notes", "name": "Notes", "version": "1.0.0", "icon": "icon.png" },
-  "window": { "width": 1100, "height": 780, "title": "Notes" },
+  "window": {
+    "width": 1100, "height": 780, "title": "Notes",
+    "minWidth": 720, "minHeight": 480, "center": true,
+    "decorations": true, "resizable": true, "alwaysOnTop": false
+  },
   "web": { "outDir": "dist" },
   "android": { "abi": "arm64", "minSdk": 24, "keystore": "release.p12", "storePasswordEnv": "MIO_KS_PASS" },
   "windows": { "signCommand": "signtool sign /fd sha256 /f cert.pfx {exe}" }

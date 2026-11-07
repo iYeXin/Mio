@@ -15,6 +15,7 @@ import android.util.Base64
 import android.view.WindowManager
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
+import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import org.json.JSONObject
 import java.io.File
@@ -25,6 +26,7 @@ class MainActivity : FlutterActivity() {
 
     private var pendingPick: MethodChannel.Result? = null
     private var pendingPickDestination: String? = null
+    private var pendingPickMultiple: Boolean = false
 
     private var pendingNotification: Triple<String, String, Int>? = null
 
@@ -133,27 +135,27 @@ class MainActivity : FlutterActivity() {
                 }
 
                 "media.pickImage" -> {
-                    val destination = call.argument<String>("destination")
-                    if (destination == null) {
-                        result.error("bad_args", "destination is required", null)
-                        return@setMethodCallHandler
-                    }
-                    if (pendingPick != null) {
-                        result.error("pick_busy", "A picker is already open", null)
-                        return@setMethodCallHandler
-                    }
-                    pendingPick = result
-                    pendingPickDestination = destination
-                    try {
-                        val intent = Intent(Intent.ACTION_PICK).apply {
-                            type = "image/*"
-                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                        }
-                        startActivityForResult(intent, REQUEST_PICK_IMAGE)
-                    } catch (error: Exception) {
-                        pendingPick = null
-                        result.error("pick_failed", error.message, null)
-                    }
+                    startImagePicker(call, result, max = 1)
+                }
+
+                "media.pickImages" -> {
+                    startImagePicker(call, result, max = call.argument<Int>("max") ?: 0)
+                }
+
+                "notify.progress" -> {
+                    val id = call.argument<Int>("id") ?: 4002
+                    val title = call.argument<String>("title") ?: "Mio"
+                    val text = call.argument<String>("text") ?: ""
+                    val progress = call.argument<Int>("progress") ?: 0
+                    val max = call.argument<Int>("max") ?: 100
+                    postProgress(id, title, text, progress, max)
+                    result.success(mapOf("id" to id, "progress" to progress))
+                }
+
+                "notify.cancel" -> {
+                    val id = call.argument<Int>("id") ?: 4001
+                    (getSystemService(NOTIFICATION_SERVICE) as NotificationManager).cancel(id)
+                    result.success(null)
                 }
 
                 "foreground.start" -> {
@@ -222,25 +224,105 @@ class MainActivity : FlutterActivity() {
         }
     }
 
+    private fun startImagePicker(call: MethodCall, result: MethodChannel.Result, max: Int) {
+        val destination = (call.arguments as? Map<*, *>)?.get("destination") as? String
+        if (destination == null) {
+            result.error("bad_args", "destination is required", null)
+            return
+        }
+        if (pendingPick != null) {
+            result.error("pick_busy", "A picker is already open", null)
+            return
+        }
+        pendingPick = result
+        pendingPickDestination = destination
+        pendingPickMultiple = max > 1
+        try {
+            val intent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                // The system photo picker: no storage permission, multi-select.
+                Intent(MediaStore.ACTION_PICK_IMAGES).apply {
+                    type = "image/*"
+                    if (max > 1) {
+                        putExtra(MediaStore.EXTRA_PICK_IMAGES_MAX, max)
+                        putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
+                    }
+                }
+            } else {
+                Intent(Intent.ACTION_PICK).apply {
+                    type = "image/*"
+                    data = MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+                }
+            }
+            intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            startActivityForResult(intent, REQUEST_PICK_IMAGE)
+        } catch (error: Exception) {
+            pendingPick = null
+            pendingPickDestination = null
+            result.error("pick_failed", error.message, null)
+        }
+    }
+
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode != REQUEST_PICK_IMAGE) return
         val pending = pendingPick
         val destination = pendingPickDestination
+        val multiple = pendingPickMultiple
         pendingPick = null
         pendingPickDestination = null
-        if (pending == null) return
-        if (resultCode != RESULT_OK || data?.data == null || destination == null) {
-            pending.success(null)
+        pendingPickMultiple = false
+        if (pending == null || destination == null) return
+        if (resultCode != RESULT_OK || data == null) {
+            pending.success(if (multiple) emptyList<Any>() else null)
             return
         }
+
+        val uris = mutableListOf<Uri>()
+        data.clipData?.let { clip ->
+            for (index in 0 until clip.itemCount) {
+                clip.getItemAt(index)?.uri?.let { uris.add(it) }
+            }
+        }
+        data.data?.let { uris.add(it) }
+
         executor.execute {
             try {
-                pending.success(copyPickedImage(data.data!!, destination))
+                val picked = uris.map { copyPickedImage(it, destination) }
+                runOnUiThread {
+                    pending.success(if (multiple) picked else picked.firstOrNull())
+                }
             } catch (error: Exception) {
                 runOnUiThread { pending.error("pick_failed", error.message, null) }
             }
         }
+    }
+
+    private fun postProgress(id: Int, title: String, text: String, progress: Int, max: Int) {
+        val manager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            manager.createNotificationChannel(
+                NotificationChannel(
+                    "mio.progress",
+                    "Background progress",
+                    NotificationManager.IMPORTANCE_LOW,
+                ),
+            )
+        }
+        val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            Notification.Builder(this, "mio.progress")
+        } else {
+            Notification.Builder(this)
+        }
+        manager.notify(
+            id,
+            builder
+                .setContentTitle(title)
+                .setContentText(text)
+                .setSmallIcon(applicationInfo.icon)
+                .setOngoing(true)
+                .setProgress(max, progress, false)
+                .build(),
+        )
     }
 
     private fun copyPickedImage(uri: Uri, destination: String): Map<String, Any?> {

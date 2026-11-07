@@ -1,10 +1,13 @@
 // ignore_for_file: deprecated_member_use
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 import 'package:webview_flutter_windows/webview_flutter_windows.dart';
 import 'package:window_manager/legacy.dart';
 
 import 'src/api.dart';
+import 'src/app_manifest.dart';
 import 'src/error_app.dart';
 import 'src/platform_windows.dart';
 import 'src/runtime.dart';
@@ -16,29 +19,34 @@ Future<void> main() async {
 
   try {
     final runtime = await MioRuntime.start(MioPlatformWindows());
-    await windowManager.setTitle(runtime.manifest.name);
-    await windowManager.setSize(
-      Size(runtime.manifest.width.toDouble(), runtime.manifest.height.toDouble()),
-    );
-    await windowManager.center();
+    final manifest = runtime.manifest;
 
     // Closing must run shutdown (sidecar cleanup) before the window goes away.
     await windowManager.setPreventClose(true);
     windowManager.addListener(WindowCloseHandler(runtime.dispose));
+    windowManager.addListener(_WindowStateReporter(runtime.api));
 
     runApp(MioWindowsApp(runtime));
     await windowManager.waitUntilReadyToShow(
       WindowOptions(
-        size: Size(
-          runtime.manifest.width.toDouble(),
-          runtime.manifest.height.toDouble(),
-        ),
-        title: runtime.manifest.name,
-        center: true,
+        size: Size(manifest.width.toDouble(), manifest.height.toDouble()),
+        minimumSize: _minimumSize(manifest),
+        title: manifest.title,
+        center: manifest.center,
+        alwaysOnTop: manifest.alwaysOnTop,
         backgroundColor: Colors.transparent,
         skipTaskbar: false,
       ),
       () async {
+        // Everything the config can express is applied before the first frame,
+        // so the window never jumps or re-decorates in front of the user.
+        if (!manifest.decorations) await windowManager.setAsFrameless();
+        if (!manifest.resizable) await windowManager.setResizable(false);
+        if (manifest.x != null && manifest.y != null) {
+          await windowManager.setPosition(
+            Offset(manifest.x!.toDouble(), manifest.y!.toDouble()),
+          );
+        }
         await windowManager.show();
         await windowManager.focus();
       },
@@ -52,6 +60,45 @@ Future<void> main() async {
         await windowManager.focus();
       },
     );
+  }
+}
+
+Size? _minimumSize(AppManifest manifest) {
+  final width = manifest.minWidth;
+  final height = manifest.minHeight;
+  if (width == null && height == null) return null;
+  return Size((width ?? 320).toDouble(), (height ?? 240).toDouble());
+}
+
+/// Pushes `window.state` to the page after a move or resize so a custom title
+/// bar can keep its layout in sync.
+class _WindowStateReporter with WindowListener {
+  _WindowStateReporter(this.api);
+
+  final MioApi api;
+  Timer? _debounce;
+
+  @override
+  void onWindowResize() => _schedule();
+
+  @override
+  void onWindowMove() => _schedule();
+
+  @override
+  void onWindowMaximize() => _schedule();
+
+  @override
+  void onWindowUnmaximize() => _schedule();
+
+  void _schedule() {
+    _debounce?.cancel();
+    _debounce = Timer(const Duration(milliseconds: 120), () async {
+      try {
+        api.emit('window.state', await api.call('window.state', const {}));
+      } catch (_) {
+        // Best-effort: the window may already be closing.
+      }
+    });
   }
 }
 

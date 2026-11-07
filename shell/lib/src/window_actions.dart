@@ -11,6 +11,17 @@ abstract class WindowActions {
   Future<void> setSize(int width, int height);
   Future<void> setFullScreen(bool fullScreen);
   Future<void> setAlwaysOnTop(bool alwaysOnTop);
+
+  /// Hides the title bar and frame; the page draws its own and calls
+  /// [startDragging] from a pointer-down handler.
+  Future<void> setDecorations(bool decorations);
+
+  /// Starts a native window drag; call from a title-bar pointer-down.
+  Future<void> startDragging();
+
+  Future<void> setResizable(bool resizable);
+
+  Future<void> setMinimumSize(int width, int height);
   Future<Map<String, Object?>> getState();
 }
 
@@ -53,6 +64,18 @@ class UnsupportedWindowActions implements WindowActions {
 
   @override
   Future<void> setAlwaysOnTop(bool alwaysOnTop) async => _unsupported();
+
+  @override
+  Future<void> setDecorations(bool decorations) async => _unsupported();
+
+  @override
+  Future<void> startDragging() async => _unsupported();
+
+  @override
+  Future<void> setResizable(bool resizable) async => _unsupported();
+
+  @override
+  Future<void> setMinimumSize(int width, int height) async => _unsupported();
 
   @override
   Future<Map<String, Object?>> getState() async => {

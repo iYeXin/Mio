@@ -11,6 +11,14 @@ class AppManifest {
     this.backgroundColor = '#ffffff',
     this.requiredApiVersion,
     this.foregroundService = false,
+    this.x,
+    this.y,
+    this.center = true,
+    this.resizable = true,
+    this.decorations = true,
+    this.alwaysOnTop = false,
+    this.minWidth,
+    this.minHeight,
   });
 
   final String id;
@@ -26,6 +34,16 @@ class AppManifest {
 
   /// Whether the app declared `android.foregroundService` in mio.config.json.
   final bool foregroundService;
+
+  /// Initial window position, or null for the platform default.
+  final int? x;
+  final int? y;
+  final bool center;
+  final bool resizable;
+  final bool decorations;
+  final bool alwaysOnTop;
+  final int? minWidth;
+  final int? minHeight;
 
   String get title => name;
 
@@ -56,6 +74,14 @@ class AppManifest {
       requiredApiVersion:
           requiresMap['apiVersion'] is String ? requiresMap['apiVersion'] as String : null,
       foregroundService: androidMap['foregroundService'] == true,
+      x: _optionalInt(windowMap['x']),
+      y: _optionalInt(windowMap['y']),
+      center: windowMap['center'] != false,
+      resizable: windowMap['resizable'] != false,
+      decorations: windowMap['decorations'] != false,
+      alwaysOnTop: windowMap['alwaysOnTop'] == true,
+      minWidth: _optionalInt(windowMap['minWidth']),
+      minHeight: _optionalInt(windowMap['minHeight']),
     );
   }
 
@@ -84,6 +110,12 @@ class AppManifest {
 
   static String _string(Object? value, String fallback) {
     return value is String && value.trim().isNotEmpty ? value.trim() : fallback;
+  }
+
+  static int? _optionalInt(Object? value) {
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    return null;
   }
 
   static int _positiveInt(Object? value, int fallback) {

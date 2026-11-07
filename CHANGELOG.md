@@ -24,7 +24,18 @@
   - `media.pickImage`：Android 相册 / Windows 文件选择器，图片复制到沙箱 `media/`；
   - `foreground.start` / `stop` / `info`：Android 前台服务（常驻通知），需要在
     `mio.config.json` 里声明 `android.foregroundService: true`；
-- `app.info().features` 新增 `notify` / `media` / `foreground` 三个能力位；
+- `app.info().features` 新增 `notify` / `media` / `foreground` / `tray` / `share` 五个能力位；
+- `http` 重做：请求体不再走 base64（字符串或沙箱文件），响应按 content-type 返回文本或
+  写入沙箱；新增 `http.upload`、`http.download` 的 `resume`、`http.progress` 事件、
+  `Content-Length` 校验、`proxy` / `HTTPS_PROXY` 与 `caFile`；
+- 通知补齐：`notify.progress`、`notify.cancel`；Android 13+ 走系统 Photo Picker，
+  新增 `media.pickImages`；
+- Windows：托盘（`tray.set/remove` + `tray.click` / `tray.menu` 事件）、窗口外观
+  （`window.setDecorations` / `startDragging` / `setResizable` / `setMinimumSize`）
+  与 `window.state` 事件；
+- 新增 `share.text` / `share.file`（基于 `share_plus`）；
+- 窗口初始状态写进 `mio.config.json` 的 `window`（`x`/`y`/`center`/`resizable`/
+  `decorations`/`alwaysOnTop`/`minWidth`/`minHeight`），启动时在首帧前应用，避免闪烁；
 - 模板新增 `POST_NOTIFICATIONS`、`FOREGROUND_SERVICE`、`FOREGROUND_SERVICE_DATA_SYNC`
   权限与 `MioForegroundService` 声明；
 - 新增 `tools/verification/platform` 验证应用。
