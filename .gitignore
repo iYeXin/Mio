@@ -16,3 +16,8 @@ packages/cli/templates/windows/
 
 # Working notes stay local (research, decisions, acceptance logs).
 docs/local/
+
+# docs site
+docs/.vitepress/dist
+docs/.vitepress/cache
+.env

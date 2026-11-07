@@ -70,7 +70,7 @@ foreach ($doc in @(
   "README.md", "CHANGELOG.md", "LICENSE",
   "docs/api.md", "docs/architecture.md", "docs/native-extensions.md",
   "docs/signing.md", "docs/release.md",
-  "docs/template-maintenance.md", "docs/README.md"
+  "docs/template-maintenance.md", "docs/index.md", "docs/quickstart.md", "docs/configuration.md"
 )) {
   Check "$doc exists" { Test-Path $doc }
 }

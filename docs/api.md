@@ -280,7 +280,7 @@ const started = await nativeApi.start(lib.handle, '{"level":"info"}'); // { code
 （Windows），`<abi>` 是 `arm64`、`x64`、`arm`、`x86` 之一。首次 `load` 时壳会把它解到
 应用数据目录再 `dlopen`，同一进程内重复 `load` 返回同一个 handle。
 
-可运行的最小工程见 [examples/native-demo](../examples/native-demo/)。
+可运行的最小工程见 [examples/native-demo](https://github.com/iYeXin/Mio/tree/main/examples/native-demo)。
 
 ABI 与文件头会在加载前校验：ELF/PE 头不对、机器类型与当前进程不符，都会在 `dlopen`
 之前报 `NATIVE_INVALID`，而不是抛出 linker 噪声。

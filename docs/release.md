@@ -32,7 +32,7 @@ Mio 有三个独立演进的版本号：
 3. **文档**
    - [API](api.md) 覆盖 `api.dart` 里所有 `case 'x.y'`；
    - 错误码表覆盖代码里出现的所有 `MIO/ FS_/PROCESS_/NATIVE_` 码；
-   - [CHANGELOG](../CHANGELOG.md) 有本次条目。
+   - [CHANGELOG](https://github.com/iYeXin/Mio/blob/main/CHANGELOG.md) 有本次条目。
 4. **模板**
    - `packages/cli/templates/android/mio-shell-universal.apk`、`mio-shell-arm64.apk` 存在；
    - `packages/cli/templates/windows/` 完整（含 `data/`）；

@@ -1,23 +1,21 @@
 # Mio
 
-![Mio](docs/mio-icon.png)
+![Mio](docs/public/mio-icon.png)
 
-把 Web 应用打包成 Android APK 和 Windows 桌面应用。
+轻量的跨平台应用开发框架：用 Web 技术写界面，构建成 Android 与 Windows 应用。
 
-壳是一个预编译的 Flutter 应用，业务代码是网页。CLI 把网页打成一个归档塞进壳里，
-再补上图标、包名、版本和签名 —— 全程不编译 Flutter。
+运行时是一个预编译的 Mio 应用，业务代码是网页。CLI 把网页资源打包进应用，
+再补上图标、包名、版本和签名。
 
 | Android | Windows |
 | --- | --- |
-| ![Android](docs/assets/android.png) | ![Windows](docs/assets/windows.png) |
+| ![Android](docs/public/assets/android.png) | ![Windows](docs/public/assets/windows.png) |
 
 同一个页面在两端：`@iyexin/mio-cli` 生成的示例应用，四条桥调用。
 
 > **NOTE**
-> Mio 面向 Web 优先、原生需求很浅的小应用：一个 WebView、一层 JSON 桥、按需加载自己的
-> 原生库。不适合需要完整 Android SDK 或原生 UI（相机预览、地图、复杂后台服务）、依赖插件
-> 生态与第三方扩展、要求商店合规与安全审计、或需要长期 API 兼容承诺的项目 —— 这些场景直接
-> 用原生、Flutter 或 Tauri/Electron 更省事。
+> Mio 是轻量框架：一个 WebView、一层桥、按需加载原生库，适合中小型应用与内部工具。
+> 需要完整原生 SDK、原生 UI（相机预览、地图）或插件生态时，直接用原生或 Flutter 更合适。
 
 ## 快速开始
 
@@ -165,7 +163,7 @@ tools/verification/      手工验证应用（原生 API / 进程 API）
 - [签名](docs/signing.md)
 - [模板维护](docs/template-maintenance.md)
 - [发布流程](docs/release.md)
-- [文档索引](docs/README.md)
+- [文档站](docs/index.md)
 
 ## 开发
 
