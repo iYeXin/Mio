@@ -794,6 +794,10 @@ export const windowApi = {
   /** Fires after moves, resizes and maximize changes (Windows). */
   onState: (handler: (state: WindowState) => void): Promise<() => void> =>
     Mio.on("window.state", (data) => handler(data as WindowState)),
+
+  /** Sizes and centres the window inside the usable desktop area (Windows). */
+  fitToWorkArea: (options?: { margin?: number }): Promise<{ width: number; height: number }> =>
+    invoke("window.fitToWorkArea", options ?? {}),
 };
 
 export default Mio;

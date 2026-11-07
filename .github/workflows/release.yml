@@ -120,6 +120,8 @@ jobs:
             platform: win32-x64
           - os: macos-latest
             platform: darwin-arm64
+          - os: ubuntu-24.04-arm
+            platform: linux-arm64
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -135,13 +137,25 @@ jobs:
           set -euo pipefail
           PLATFORM="${{ matrix.platform }}"
           SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
-          if [ -z "$SDK" ]; then echo "::error::Android SDK not found"; exit 1; fi
-          BT="$(ls "$SDK/build-tools" | sort -V | tail -n1)"
-          BT_DIR="$SDK/build-tools/$BT"
-          ALIGN="$BT_DIR/zipalign"
-          [ -f "$ALIGN" ] || ALIGN="$BT_DIR/zipalign.exe"
+          if [ -n "$SDK" ] && [ -d "$SDK/build-tools" ]; then
+            BT="$(ls "$SDK/build-tools" | sort -V | tail -n1)"
+            BT_DIR="$SDK/build-tools/$BT"
+            JAR="$BT_DIR/lib/apksigner.jar"
+            ALIGN="$BT_DIR/zipalign"
+            [ -f "$ALIGN" ] || ALIGN="$BT_DIR/zipalign.exe"
+          else
+            # arm64 Linux runners have no x86_64 Android SDK: the distro ships
+            # an arm64 zipalign, and apksigner.jar is platform independent.
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq zipalign unzip curl
+            curl -sSL -o /tmp/build-tools.zip \
+              https://dl.google.com/android/repository/build-tools_r36_linux.zip
+            unzip -q /tmp/build-tools.zip -d /tmp/build-tools
+            JAR="$(find /tmp/build-tools -name apksigner.jar | head -n1)"
+            ALIGN="$(command -v zipalign)"
+          fi
           rm -rf staging && mkdir -p staging/tools
-          cp "$BT_DIR/lib/apksigner.jar" staging/tools/apksigner.jar
+          cp "$JAR" staging/tools/apksigner.jar
           cp "$ALIGN" staging/tools/
           tar -czf "mio-tools-$PLATFORM-tools.tar.gz" -C staging/tools .
           "$JAVA_HOME/bin/jlink" --module-path "$JAVA_HOME/jmods" \

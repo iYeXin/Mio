@@ -32,6 +32,8 @@ export interface MioConfig {
     devCommand?: string;
     devUrl?: string;
   };
+  /** Enables WebView devtools. Defaults to on in `mio dev`, off in builds. */
+  devtools?: boolean;
   android?: {
     template?: string;
     /** Which prebuilt template to inject into. Default: universal. */
@@ -47,6 +49,7 @@ export interface MioConfig {
   };
   windows?: {
     templateDir?: string;
+    /** Output executable name, e.g. "Notes.exe". The template's own exe is found automatically. */
     exe?: string;
     signCommand?: string;
   };
@@ -86,6 +89,15 @@ export async function loadConfig(
   }
   if (!APP_ID.test(config.app.id)) {
     throw new Error(`Invalid Android application id: ${config.app.id}`);
+  }
+  if (config.devtools !== undefined && typeof config.devtools !== "boolean") {
+    throw new Error("Invalid devtools: expected a boolean");
+  }
+  const exe = config.windows?.exe;
+  if (exe !== undefined && (exe.includes("/") || exe.includes("\\\\") || !exe.toLowerCase().endsWith(".exe"))) {
+    throw new Error(
+      `Invalid windows.exe: ${exe} (expected a file name like "Notes.exe"; it is the output name, not a template path)`,
+    );
   }
   const abi = config.android?.abi;
   if (abi !== undefined && !ANDROID_ABIS.includes(abi)) {

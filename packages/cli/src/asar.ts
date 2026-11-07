@@ -44,6 +44,7 @@ export async function createAppAsar(options: CreateAsarOptions): Promise<CreateA
           ? { minHeight: options.config.window.minHeight }
           : {}),
       },
+      ...(options.config.devtools !== undefined ? { devtools: options.config.devtools } : {}),
       requires: {
         apiVersion: MIO_API_VERSION,
       },

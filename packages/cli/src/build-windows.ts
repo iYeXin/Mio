@@ -40,11 +40,11 @@ export async function buildWindows(options: BuildWindowsOptions): Promise<BuildW
     await rm(outputDir, { recursive: true, force: true });
     await cp(templateDir, outputDir, { recursive: true });
 
-    const configuredExe = config.windows?.exe;
-    const exe = configuredExe
-      ? join(outputDir, configuredExe)
-      : await findFirstExe(outputDir);
-    if (!exe) throw new Error(`Windows template has no exe: ${templateDir}`);
+    // `windows.exe` names the output; the template's own executable is always
+    // discovered, so a configured name never has to exist in the template.
+    const templateExe = await findFirstExe(outputDir);
+    if (!templateExe) throw new Error(`Windows template has no exe: ${templateDir}`);
+    const exe = templateExe;
 
     await injectWindowsExe({
       templateExe: exe,
@@ -56,10 +56,11 @@ export async function buildWindows(options: BuildWindowsOptions): Promise<BuildW
     });
     await copyFile(injectedExe, exe);
 
-    const finalExe = config.windows?.exe
-      ? exe
-      : join(outputDir, `${safeName(config.app.name)}.exe`);
-    if (finalExe !== exe) {
+    const finalExe = join(
+      outputDir,
+      config.windows?.exe ?? `${safeName(config.app.name)}.exe`,
+    );
+    if (resolve(finalExe) !== resolve(exe)) {
       await rm(finalExe, { force: true });
       await rename(exe, finalExe);
     }

@@ -98,6 +98,10 @@
         ["window visibility / shadow", "hide+show, shadow toggle, state fields"],
         ["process.exec", "runs `cmd /c echo` and captures stdout"],
         ["process.pid / env / args", "app pid, PATH present, launch args array"],
+        ["platform.display", "screen bounds, work area and scale factor"],
+        ["fs grants", "an absolute path without a dialog grant is refused"],
+        ["window.fitToWorkArea", "sizes the window into the usable desktop area"],
+        ["platform.setSystemBars", "colors the Android status bar"],
       ];
 
       const list = document.getElementById("cases");
@@ -354,6 +358,51 @@
               " · args " + args.args.length);
           } catch (error) {
             settle(13, false, String(error.message || error));
+          }
+        }
+
+        try {
+          const display = await window.Mio.invoke("platform.display");
+          settle(14, display.scaleFactor > 0 && display.bounds.width > 0,
+            display.bounds.width + "x" + display.bounds.height + " @" + display.scaleFactor +
+            (display.workArea ? " · workArea " + display.workArea.width + "x" + display.workArea.height : ""));
+        } catch (error) {
+          settle(14, false, String(error.message || error));
+        }
+
+        try {
+          const absolute = info.platform === "windows" ? "C:\\\\Windows\\\\win.ini" : "/etc/hosts";
+          await window.Mio.invoke("fs.readText", { path: absolute });
+          settle(15, false, "absolute path was accepted without a grant");
+        } catch (error) {
+          settle(15, error.code === "FS_FORBIDDEN", "refused: " + (error.code || error.message));
+        }
+
+        if (!features.window) {
+          settleState(16, "SKIP", "window control unavailable", "wait");
+        } else {
+          try {
+            const fitted = await window.Mio.invoke("window.fitToWorkArea", { margin: 24 });
+            settle(16, fitted.width > 0 && fitted.height > 0,
+              fitted.width + "x" + fitted.height);
+          } catch (error) {
+            settle(16, false, String(error.message || error));
+          }
+        }
+
+        if (info.platform !== "android") {
+          settleState(17, "SKIP", "Android only", "wait");
+        } else {
+          try {
+            await window.Mio.invoke("platform.setSystemBars", {
+              statusBarColor: "#13120f",
+              statusBarIcons: "light",
+              navigationBarColor: "#13120f",
+              navigationBarIcons: "light",
+            });
+            settle(17, true, "status bar tinted");
+          } catch (error) {
+            settle(17, false, String(error.message || error));
           }
         }
 

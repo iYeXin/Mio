@@ -1,5 +1,6 @@
 // ignore_for_file: deprecated_member_use
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
@@ -144,11 +145,29 @@ class _WindowsWebViewPageState extends State<_WindowsWebViewPage> {
         userDataPath: p.join(widget.runtime.dataDir.path, 'webview2'),
       );
       await _controller.initialize();
-      await _controller.setDefaultContextMenusEnabled(false);
+      // Right-click and text-selection menus are part of the platform; the
+      // "Inspect" entry only appears when devtools are enabled.
+      await _controller.setDefaultContextMenusEnabled(true);
+      await _controller.setDevToolsEnabled(widget.runtime.api.devTools);
       await _controller.loadUrl(widget.runtime.webUrl);
+      unawaited(_logDisplay());
       if (mounted) setState(() => _initialized = true);
     } catch (error) {
       if (mounted) setState(() => _error = error);
+    }
+  }
+
+  /// One startup log line with geometry, so HiDPI or sizing problems can be
+  /// diagnosed from `logs/mio.log` alone.
+  Future<void> _logDisplay() async {
+    try {
+      final display = await widget.runtime.api.call('platform.display', const {});
+      await widget.runtime.api.call('app.log', {
+        'level': 'info',
+        'message': 'display ${jsonEncode(display)}',
+      });
+    } catch (_) {
+      // Diagnostics must never block startup.
     }
   }
 

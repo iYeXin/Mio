@@ -66,9 +66,8 @@ async function startWindows(
   const templateDir = (await resolveWindowsTemplate(projectDir, config, {
     explicit: options.template,
   })).path;
-  const exe = config.windows?.exe
-    ? join(templateDir, config.windows.exe)
-    : await findFirstExe(templateDir);
+  // The configured name only applies to build output, never to the template.
+  const exe = await findFirstExe(templateDir);
   if (!exe) throw new Error(`No Windows executable in ${templateDir}`);
 
   console.log(`Launching Windows shell: ${exe}`);

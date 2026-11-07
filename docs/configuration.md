@@ -57,8 +57,8 @@
 
 | 字段 | 默认 | 说明 |
 |---|---|---|
-| `width` / `height` | 1024 / 720 | 初始尺寸 |
-| `title` | 应用名称 | 窗口标题 |
+| `width` / `height` | 1024 / 720 | 初始尺寸（逻辑像素） |
+| `title` | 应用名称 | 窗口标题（优先于 `app.name`） |
 | `x` / `y` | 居中 | 初始位置 |
 | `center` | `true` | 是否居中 |
 | `minWidth` / `minHeight` | — | 最小尺寸 |
@@ -96,8 +96,22 @@
 
 | 字段 | 默认 | 说明 |
 |---|---|---|
-| `exe` | 自动探测 | 主程序文件名 |
+| `exe` | 应用名称 | **输出**可执行文件名，如 `Notes.exe`；模板里的 exe 会自动找到并改名 |
 | `signCommand` | — | 签名命令，`{exe}` 会替换为产物路径 |
+
+## devtools
+
+| 字段 | 默认 | 说明 |
+|---|---|---|
+| `devtools` | `mio dev` 开启、构建产物关闭 | 是否允许打开 WebView DevTools（Windows 右键菜单里的“检查”，Android 的 `chrome://inspect`） |
+
+```json
+{ "devtools": true }
+```
+
+未设置时跟随运行模式：开发服务器里开启，打包产物里关闭。开启后启动日志会写出屏幕
+几何信息（`platform.display()`），打包后的页面 `console.*` 和未捕获异常也会转发到
+`logs/mio.log`。
 
 ## Android 工具链
 

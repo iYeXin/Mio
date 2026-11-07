@@ -5,6 +5,7 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Intent
+import android.graphics.Color
 import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -12,6 +13,7 @@ import android.os.Build
 import android.provider.MediaStore
 import android.provider.OpenableColumns
 import android.util.Base64
+import android.view.View
 import android.view.WindowManager
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -156,6 +158,47 @@ class MainActivity : FlutterActivity() {
                     val id = call.argument<Int>("id") ?: 4001
                     (getSystemService(NOTIFICATION_SERVICE) as NotificationManager).cancel(id)
                     result.success(null)
+                }
+
+                "setSystemBars" -> {
+                    val statusColor = call.argument<String>("statusBarColor")
+                    val navColor = call.argument<String>("navigationBarColor")
+                    val statusIcons = call.argument<String>("statusBarIcons")
+                    val navIcons = call.argument<String>("navigationBarIcons")
+                    runOnUiThread {
+                        try {
+                            // Android 15+ enforces edge-to-edge and ignores the
+                            // bar colors; go edge-to-edge and let Flutter paint
+                            // the area behind the status bar.
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                                window.setDecorFitsSystemWindows(false)
+                            }
+                            @Suppress("DEPRECATION")
+                            window.statusBarColor = Color.TRANSPARENT
+                            @Suppress("DEPRECATION")
+                            window.navigationBarColor = navColor?.let { Color.parseColor(it) } ?: Color.TRANSPARENT
+                            @Suppress("DEPRECATION")
+                            var flags = window.decorView.systemUiVisibility
+                            if (statusIcons != null) {
+                                flags = if (statusIcons == "light") {
+                                    flags or View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
+                                } else {
+                                    flags and View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR.inv()
+                                }
+                            }
+                            if (navIcons != null) {
+                                flags = if (navIcons == "light") {
+                                    flags or View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
+                                } else {
+                                    flags and View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR.inv()
+                                }
+                            }
+                            window.decorView.systemUiVisibility = flags
+                            result.success(null)
+                        } catch (error: Exception) {
+                            result.error("system_bars_failed", error.message, null)
+                        }
+                    }
                 }
 
                 "foreground.start" -> {

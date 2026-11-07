@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'dart:convert';
+
 import 'package:webview_flutter/webview_flutter.dart';
+import 'package:webview_flutter_android/webview_flutter_android.dart';
 
 import 'src/api.dart';
 import 'src/error_app.dart';
@@ -22,13 +25,23 @@ class MioAndroidApp extends StatelessWidget {
 
   final MioRuntime runtime;
 
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       title: runtime.manifest.name,
       navigatorKey: mioNavigatorKey,
       debugShowCheckedModeBanner: false,
-      home: _WebViewPage(runtime),
+      // The area behind the status bar is painted by the shell so
+      // `platform.setSystemBars` works on Android 15+ (edge-to-edge).
+      home: ValueListenableBuilder<Color?>(
+        valueListenable: mioSystemBarColor,
+        builder: (context, color, child) => ColoredBox(
+          color: color ?? const Color(0xFFFFFFFF),
+          child: SafeArea(top: true, bottom: true, child: child!),
+        ),
+        child: _WebViewPage(runtime),
+      ),
     );
   }
 }
@@ -49,6 +62,8 @@ class _WebViewPageState extends State<_WebViewPage> {
   @override
   void initState() {
     super.initState();
+    // Chrome remote debugging (chrome://inspect) mirrors the devtools setting.
+    AndroidWebViewController.enableDebugging(widget.runtime.api.devTools);
     _controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..setBackgroundColor(const Color(0xffffffff))
@@ -59,6 +74,7 @@ class _WebViewPageState extends State<_WebViewPage> {
           },
           onPageFinished: (_) {
             if (mounted) setState(() => _loading = false);
+            _logDisplay();
           },
           onWebResourceError: (error) {
             debugPrint('Mio WebView error: ${error.description}');
@@ -92,6 +108,19 @@ class _WebViewPageState extends State<_WebViewPage> {
       launchUrl(target, mode: LaunchMode.externalApplication);
     }
     return NavigationDecision.prevent;
+  }
+
+
+  Future<void> _logDisplay() async {
+    try {
+      final display = await widget.runtime.api.call('platform.display', const {});
+      await widget.runtime.api.call('app.log', {
+        'level': 'info',
+        'message': 'display ${jsonEncode(display)}',
+      });
+    } catch (_) {
+      // Diagnostics must never block startup.
+    }
   }
 
   @override

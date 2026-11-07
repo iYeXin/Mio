@@ -6,7 +6,7 @@ export default {
   },
   server: {
     watch: {
-      ignored: ["**/.mio/**", "**/build/**", "**/dist/**"],
+      ignored: ["**/.mio/**", "**/build/**", "**/dist/**", "**/artifacts/**", "**/.cache/**", "**/*.apk", "**/*.zip"],
     },
   },
 };

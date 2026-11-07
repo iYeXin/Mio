@@ -1,4 +1,6 @@
 import 'dart:ffi';
+
+import 'package:ffi/ffi.dart';
 import 'dart:io';
 
 import 'package:flutter/services.dart';
@@ -11,6 +13,21 @@ abstract class PlatformActions {
 
   Future<void> keepAwake(bool enabled);
   Future<void> orientation(String mode);
+
+  /// Desktop work area in logical-independent physical pixels, when the
+  /// platform exposes it (Windows: SystemParametersInfo SPI_GETWORKAREA).
+  Future<Map<String, Object?>?> workArea();
+}
+
+final class _Rect extends Struct {
+  @Int32()
+  external int left;
+  @Int32()
+  external int top;
+  @Int32()
+  external int right;
+  @Int32()
+  external int bottom;
 }
 
 PlatformActions createPlatformActions(String platformName) {
@@ -37,6 +54,9 @@ class AndroidPlatformActions implements PlatformActions {
   @override
   Future<void> orientation(String mode) =>
       _channel.invokeMethod<void>('setOrientation', {'mode': mode});
+
+  @override
+  Future<Map<String, Object?>?> workArea() async => null;
 }
 
 /// `SetThreadExecutionState` keeps the display awake while the app is running.
@@ -48,6 +68,7 @@ class WindowsPlatformActions implements PlatformActions {
   static const int _esDisplayRequired = 0x00000002;
 
   static final DynamicLibrary _kernel32 = DynamicLibrary.open('kernel32.dll');
+  static final DynamicLibrary _user32 = DynamicLibrary.open('user32.dll');
   static final int Function(int) _setThreadExecutionState = _kernel32
       .lookupFunction<Uint32 Function(Uint32), int Function(int)>(
         'SetThreadExecutionState',
@@ -58,6 +79,29 @@ class WindowsPlatformActions implements PlatformActions {
 
   @override
   bool get supportsOrientation => false;
+
+  static final int Function(int, int, Pointer<_Rect>, int) _getWorkArea = _user32
+      .lookupFunction<Int32 Function(Uint32, Uint32, Pointer<_Rect>, Uint32),
+          int Function(int, int, Pointer<_Rect>, int)>('SystemParametersInfoW');
+
+  static const int _spiGetWorkArea = 0x0030;
+
+  @override
+  Future<Map<String, Object?>?> workArea() async {
+    final rect = calloc<_Rect>();
+    try {
+      final ok = _getWorkArea(_spiGetWorkArea, 0, rect, 0);
+      if (ok == 0) return null;
+      return <String, Object?>{
+        'x': rect.ref.left,
+        'y': rect.ref.top,
+        'width': rect.ref.right - rect.ref.left,
+        'height': rect.ref.bottom - rect.ref.top,
+      };
+    } finally {
+      calloc.free(rect);
+    }
+  }
 
   @override
   Future<void> keepAwake(bool enabled) async {
@@ -91,4 +135,7 @@ class UnsupportedPlatformActions implements PlatformActions {
   @override
   Future<void> orientation(String mode) =>
       Future.error(UnsupportedError('orientation is not supported on this platform'));
+
+  @override
+  Future<Map<String, Object?>?> workArea() async => null;
 }

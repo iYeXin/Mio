@@ -3,6 +3,25 @@
 本文件记录 Mio 的对外变更。版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)；
 `MIO_API_VERSION`（桥契约）与 CLI 版本分开演进，见 [docs/release.md](docs/release.md)。
 
+## 0.1.6 — 2026-11-07
+
+来自早期体验反馈的一组修复：
+
+- **Windows WebView2 右键菜单恢复**：之前被显式关闭；现在右键、选中文本菜单可用。
+  “检查”入口由新配置 `devtools` 控制（不设置时开发模式开、打包产物关）；
+- **页面日志**：`console.*`、未捕获异常和 unhandled rejection 转发到 `logs/mio.log`；
+  启动时记录一次 `platform.display()`（屏幕、工作区、缩放比、窗口状态）；
+- **fs 外部路径授权**：通过 `dialog.openFile/openFiles/saveFile/openDirectory` 选过的
+  路径在本次运行内可被 `fs.*` 与 blob 端点直接使用，绝对路径不再一律拒绝；
+- **windows.exe 语义修正**：配置项现在表示输出文件名，CLI 自动找到模板 exe 改名；
+  非法值（带路径、不是 .exe）在加载配置时就报错；
+- **Android 系统栏**：新增 `platform.setSystemBars`，Android 15+ 走 edge-to-edge，
+  状态栏底色由壳绘制，深色模式不再割裂；
+- `platform.display()`（缩放比、屏幕、工作区）与 `windowApi.fitToWorkArea()`；
+- `window.title` 现在真正覆盖 Windows 标题栏（之前被 `app.name` 覆盖）；
+- 脚手架 Vite 监听忽略 `artifacts/`、`.cache/`、`*.apk`、`*.zip`，避免大文件触发 EBUSY；
+- 工具包新增 **linux-arm64**，并为不支持 `-P` 的旧版 zipalign 加了 4 KiB 回退；
+- 修复模板安装签名不一致时 `adb install -r` 静默失败（文档补充先卸载）。
 ## 0.1.5 — 2026-11-07
 
 - 工具包下载也遵循 `git config http.proxy`（与模板下载一致），没有代理环境变量时

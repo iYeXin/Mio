@@ -19,6 +19,8 @@ class AppManifest {
     this.alwaysOnTop = false,
     this.minWidth,
     this.minHeight,
+    this.windowTitle,
+    this.devTools,
   });
 
   final String id;
@@ -45,7 +47,15 @@ class AppManifest {
   final int? minWidth;
   final int? minHeight;
 
-  String get title => name;
+  /// `window.title` from the config; falls back to [name].
+  final String? windowTitle;
+
+  /// Explicit `devtools` setting; null means "dev mode only".
+  final bool? devTools;
+
+  String get title => (windowTitle != null && windowTitle!.trim().isNotEmpty)
+      ? windowTitle!.trim()
+      : name;
 
   static const fallback = AppManifest(
     id: 'dev.mio.unknown',
@@ -82,6 +92,8 @@ class AppManifest {
       alwaysOnTop: windowMap['alwaysOnTop'] == true,
       minWidth: _optionalInt(windowMap['minWidth']),
       minHeight: _optionalInt(windowMap['minHeight']),
+      windowTitle: windowMap['title'] is String ? windowMap['title'] as String : null,
+      devTools: json['devtools'] is bool ? json['devtools'] as bool : null,
     );
   }
 

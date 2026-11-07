@@ -35,7 +35,14 @@ export async function alignApk(
   if (options.verbose) args.push("-v");
   args.push("4", input, output);
 
-  const result = await run(tools.zipalign, args, { timeoutMs: 120_000 });
+  let result = await run(tools.zipalign, args, { timeoutMs: 120_000 });
+  if (result.code !== 0 && options.pageSize === 16) {
+    // Older zipalign builds (e.g. the distro package on linux-arm64) predate
+    // `-P`; fall back to 4 KiB page alignment rather than failing the build.
+    result = await run(tools.zipalign, ["-f", "-p", "4", input, output], {
+      timeoutMs: 120_000,
+    });
+  }
   if (result.code !== 0) {
     throw new MioToolError("ZIPALIGN_FAILED", "zipalign failed", {
       stdout: result.stdout,
@@ -51,7 +58,12 @@ export async function checkAlignment(
   options: AlignOptions = {},
 ): Promise<AlignmentCheck> {
   const args = ["-c", "-v", ...pageArgs(options.pageSize), "4", apk];
-  const result = await run(tools.zipalign, args, { timeoutMs: 120_000 });
+  let result = await run(tools.zipalign, args, { timeoutMs: 120_000 });
+  if (result.code !== 0 && options.pageSize === 16) {
+    result = await run(tools.zipalign, ["-c", "-v", "-p", "4", apk], {
+      timeoutMs: 120_000,
+    });
+  }
   return {
     ok: result.code === 0,
     raw: `${result.stdout}${result.stderr}`,

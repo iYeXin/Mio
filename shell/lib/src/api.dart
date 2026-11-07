@@ -23,6 +23,9 @@ export 'errors.dart' show MioApiException;
 
 const String mioApiVersion = '1.0.0';
 
+/// Color the shell paints behind the Android status bar (set via platform.setSystemBars).
+final ValueNotifier<Color?> mioSystemBarColor = ValueNotifier<Color?>(null);
+
 /// Template build version. CI passes it with --dart-define so the shell reports
 /// the same version as the release manifest.
 const String mioTemplateVersion = String.fromEnvironment(
@@ -82,6 +85,9 @@ class MioApi with WidgetsBindingObserver {
   final PlatformActions platformActions;
   final AsarArchive? asar;
   final Directory _fsRoot;
+
+  /// Devtools are available when configured explicitly, otherwise in dev only.
+  bool get devTools => manifest.devTools ?? (asar == null);
 
   late final MioProcessManager _processManager;
   late final MioNativeManager _nativeManager;
@@ -156,6 +162,12 @@ class MioApi with WidgetsBindingObserver {
           // these are outside the sandbox, so fs.* still refuses them.
           ..._userPaths(),
         };
+      case 'window.fitToWorkArea':
+        return await _fitToWorkArea(params);
+      case 'platform.display':
+        return await _display();
+      case 'platform.setSystemBars':
+        return await _setSystemBars(params);
       case 'platform.keepAwake':
         if (!platformActions.supportsKeepAwake) {
           throw MioApiException('UNSUPPORTED', 'keepAwake is not available on $platformName');
@@ -375,6 +387,7 @@ class MioApi with WidgetsBindingObserver {
             ),
           ];
     final file = await openFile(acceptedTypeGroups: groups);
+    if (file != null) _grantPath(file.path);
     return file?.path;
   }
 
@@ -389,16 +402,21 @@ class MioApi with WidgetsBindingObserver {
             ),
           ];
     final files = await openFiles(acceptedTypeGroups: groups);
+    for (final file in files) {
+      _grantPath(file.path);
+    }
     return files.map((file) => file.path).toList();
   }
   Future<Object?> _saveFile(Map<String, dynamic> params) async {
     final suggestedName = _optionalString(params, 'suggestedName');
     final location = await getSaveLocation(suggestedName: suggestedName);
+    if (location != null) _grantPath(location.path);
     return location?.path;
   }
 
   Future<Object?> _openDirectory() async {
     final path = await getDirectoryPath();
+    if (path != null) _grantPath(path);
     return path;
   }
 
@@ -451,10 +469,50 @@ class MioApi with WidgetsBindingObserver {
       }
     }
   }
+  /// Absolute paths the user picked through a dialog during this launch.
+  ///
+  /// A file picker is the permission: `fs.*` accepts an absolute path only
+  /// after `dialog.openFile` / `saveFile` / `openDirectory` returned it (or a
+  /// path inside a granted directory). Grants last until the app exits.
+  final Set<String> _grantedPaths = <String>{};
+
+  void _grantPath(String path) {
+    _grantedPaths.add(_canonicalKey(path));
+  }
+
+  String _canonicalKey(String path) {
+    var value = p.normalize(p.absolute(path));
+    try {
+      value = File(value).resolveSymbolicLinksSync();
+    } on FileSystemException {
+      // The file may not exist yet (save dialogs): canonicalise the parent.
+      try {
+        final parent = Directory(p.dirname(value)).resolveSymbolicLinksSync();
+        value = p.join(parent, p.basename(value));
+      } on FileSystemException {
+        // Keep the lexical path; the user still picked it.
+      }
+    }
+    return Platform.isWindows ? value.toLowerCase() : value;
+  }
+
+  bool _isGranted(String path) {
+    final key = _canonicalKey(path);
+    for (final granted in _grantedPaths) {
+      if (key == granted || p.isWithin(granted, key)) return true;
+    }
+    return false;
+  }
+
   String _resolvePath(String value) {
     final normalized = p.normalize(value.replaceAll('\\', '/'));
     if (p.isAbsolute(normalized)) {
-      throw MioApiException('FS_FORBIDDEN', 'Absolute paths are not allowed');
+      if (_isGranted(normalized)) return normalized;
+      throw MioApiException(
+        'FS_FORBIDDEN',
+        'Absolute paths need a grant: pick the file with dialog.* first',
+        {'path': value},
+      );
     }
     final full = p.normalize(p.join(_fsRoot.path, normalized));
     if (full != _fsRoot.path && !p.isWithin(_fsRoot.path, full)) {
@@ -512,6 +570,76 @@ class MioApi with WidgetsBindingObserver {
   ///
   /// On Android there is no console to read, so the file is the only useful
   /// sink. It lives inside the sandbox so the page can read it back with `fs`.
+  /// Screen geometry for diagnostics and layout decisions.
+  Future<Object?> _display() async {
+    final binding = WidgetsBinding.instance;
+    final view = binding.platformDispatcher.views.first;
+    final ratio = view.devicePixelRatio;
+    final logical = view.physicalSize / ratio;
+    final workArea = await platformActions.workArea();
+    return <String, Object?>{
+      'scaleFactor': ratio,
+      'bounds': <String, Object?>{
+        'width': logical.width.round(),
+        'height': logical.height.round(),
+      },
+      'workArea': ?workArea,
+      if (windowActions.supported)
+        'window': await windowActions.getState(),
+    };
+  }
+
+  /// Android system bars: colors and icon contrast.
+  /// Shrinks the window into the usable desktop area with a margin.
+  Future<Object?> _fitToWorkArea(Map<String, dynamic> params) async {
+    if (!windowActions.supported) {
+      throw MioApiException('UNSUPPORTED', 'Window control is not available here');
+    }
+    final area = await platformActions.workArea();
+    if (area == null) {
+      throw MioApiException('UNSUPPORTED', 'Work area is not available on $platformName');
+    }
+    final margin = (params['margin'] is num) ? (params['margin'] as num).toInt() : 24;
+    final width = (area['width']! as int) - margin * 2;
+    final height = (area['height']! as int) - margin * 2;
+    if (width < 320 || height < 240) {
+      throw MioApiException('WINDOW_ERROR', 'Work area is too small');
+    }
+    await windowActions.setSize(width, height);
+    await windowActions.moveTo((area['x']! as int) + margin, (area['y']! as int) + margin);
+    return <String, Object?>{'width': width, 'height': height};
+  }
+
+  Future<Object?> _setSystemBars(Map<String, dynamic> params) async {
+    if (platformName != 'android') {
+      throw MioApiException('UNSUPPORTED', 'setSystemBars is Android only');
+    }
+    try {
+      await const MethodChannel('mio/runtime').invokeMethod<void>('setSystemBars', {
+        'statusBarColor': params['statusBarColor'],
+        'navigationBarColor': params['navigationBarColor'],
+        'statusBarIcons': params['statusBarIcons'],
+        'navigationBarIcons': params['navigationBarIcons'],
+      });
+      final status = params['statusBarColor'];
+      if (status is String) {
+        final parsed = _parseColor(status);
+        if (parsed != null) mioSystemBarColor.value = parsed;
+      }
+      return null;
+    } on PlatformException catch (error) {
+      throw MioApiException('SHELL_ERROR', error.message ?? 'setSystemBars failed');
+    }
+  }
+
+  Color? _parseColor(String value) {
+    final hex = value.replaceFirst('#', '');
+    if (hex.length != 6 && hex.length != 8) return null;
+    final parsed = int.tryParse(hex, radix: 16);
+    if (parsed == null) return null;
+    return Color(hex.length == 6 ? 0xff000000 | parsed : parsed);
+  }
+
   Future<Object?> _log(Map<String, dynamic> params) async {
     final level = (_optionalString(params, 'level') ?? 'info').toLowerCase();
     if (!const {'debug', 'info', 'warn', 'error'}.contains(level)) {

@@ -59,6 +59,8 @@ const unsubscribe = await Mio.on("app.lifecycle", (event) => {
 | 方法 | 返回 |
 |---|---|
 | `platform.info()` | `{ os, osVersion, locale, processors, platform, abi }` |
+| `platform.display()` | `{ scaleFactor, bounds, workArea?, window? }`，尺寸是逻辑像素 |
+| `platform.setSystemBars({ statusBarColor?, statusBarIcons?, navigationBarColor?, navigationBarIcons? })` | Android 系统栏颜色与图标明暗；Android 15+ 会切到 edge-to-edge，由壳绘制状态栏底色 |
 | `platform.keepAwake(enabled)` | 保持屏幕常亮（Android、Windows） |
 | `platform.orientation(mode)` | 锁定屏幕方向：`auto` / `portrait` / `landscape`（Android） |
 
@@ -81,6 +83,16 @@ const unsubscribe = await Mio.on("app.lifecycle", (event) => {
 | `fs.rename(from, to)` | 重命名文件 |
 | `fs.copy(from, to)` | 复制文件或目录；文件流式写入临时文件再改名 |
 | `fs.exists(path)` | 是否存在 |
+
+绝对路径默认被拒绝。通过 `dialog.openFile` / `openFiles` / `saveFile` / `openDirectory`
+选过的路径会获得本次运行的授权，之后可以直接交给 `fs.*`、`fs.blobUrl` 和 blob 端点：
+
+```ts
+const target = await dialog.saveFile("score.png"); // 用户选定的位置
+if (target) await fs.writeBytes(target, png);      // 已授权，可直接写
+```
+
+目录授权覆盖其子路径；授权在应用退出后失效。
 
 ### 二进制传输
 
@@ -424,6 +436,7 @@ await processApi.exec({ path: "sidecar/tool.exe", args: ["--json"], stdin: "\n" 
 | `windowApi.setHasShadow(bool)` | DWM 窗口阴影；无边框窗口下带小圆角 |
 | `windowApi.focus()` / `windowApi.blur()` | 聚焦/失焦 |
 | `windowApi.setSize(width, height)` | 设置窗口尺寸 |
+| `windowApi.fitToWorkArea({ margin? })` | 把窗口缩进可用桌面区域（Windows） |
 | `windowApi.onState(handler)` | 移动/缩放/最大化后推送 `window.state`，含 `isVisible` / `isFocused` / `hasShadow` |
 
 Android 上 `windowApi` 返回 `supported: false`，动作调用会抛 `UNSUPPORTED`。
@@ -536,7 +549,7 @@ CLI 在构建时会自动写入。Shell 启动时校验：
 ## 限制
 
 - 文本仍走 JSON-RPC；只有二进制走 blob 端点。
-- 事件只有 `app.lifecycle`、`process.*`、`native.*`；窗口尺寸等事件尚未实现。
+- 窗口尺寸和位置用逻辑像素；物理像素是逻辑值乘以 `platform.display().scaleFactor`。
 - `fs` 不跟随 symlink，删除只支持文件/目录，不提供 watch。
 - blob 端点仅绑定 `127.0.0.1`，不适用于跨机访问。
 - `processApi` 只支持 Windows；Android 上没有对应的侧车能力。

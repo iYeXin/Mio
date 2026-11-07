@@ -342,6 +342,55 @@
     }
   }
 
+  // Console output and uncaught errors go to logs/mio.log: release builds have
+  // no devtools, and this is the only place a user can look afterwards.
+  function installDiagnostics() {
+    if (window.__MIO_DIAGNOSTICS__) return;
+    window.__MIO_DIAGNOSTICS__ = true;
+    var forwarding = false;
+
+    function forward(level, args) {
+      if (forwarding) return;
+      forwarding = true;
+      try {
+        var text = args
+          .map(function (value) {
+            if (typeof value === "string") return value;
+            if (value instanceof Error) return value.stack || value.message;
+            try {
+              return JSON.stringify(value);
+            } catch (_) {
+              return String(value);
+            }
+          })
+          .join(" ");
+        invoke("app.log", { level: level, message: text.slice(0, 4000) }).catch(function () {});
+      } catch (_) {
+        // Logging must never break the page.
+      } finally {
+        forwarding = false;
+      }
+    }
+
+    ["log", "info", "warn", "error", "debug"].forEach(function (level) {
+      var original = console[level];
+      if (typeof original !== "function") return;
+      console[level] = function () {
+        forward(level === "warn" ? "warn" : level === "error" ? "error" : level === "debug" ? "debug" : "info",
+          Array.prototype.slice.call(arguments));
+        return original.apply(console, arguments);
+      };
+    });
+
+    window.addEventListener("error", function (event) {
+      forward("error", ["uncaught " + (event.message || "error"), event.filename + ":" + event.lineno]);
+    });
+    window.addEventListener("unhandledrejection", function (event) {
+      var reason = event.reason;
+      forward("error", ["unhandled rejection", reason && (reason.stack || reason.message) || String(reason)]);
+    });
+  }
+
   window.Mio = {
     __mio: true,
     apiVersion: boot.apiVersion || "1.0.0",
@@ -360,5 +409,6 @@
     writeBlob: writeBlob
   };
 
+  installDiagnostics();
   connect();
 })();
