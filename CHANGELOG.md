@@ -3,6 +3,16 @@
 本文件记录 Mio 的对外变更。版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)；
 `MIO_API_VERSION`（桥契约）与 CLI 版本分开演进，见 [docs/release.md](docs/release.md)。
 
+## 0.1.3 — 2026-11-07
+
+- **Android 构建不再要求预装 Java / Android Studio**：缺少签名与对齐工具时按需下载，
+  已有部分会跳过。工具约 1.4 MB（apksigner.jar + zipalign），jlink 裁剪的 Java 运行时
+  约 18 MB，两者都缺时约 19 MB；
+- 工具包按组件缓存（`~/.mio/tools/android/`），校验 sha256，支持 `MIO_TOOLS_CACHE_DIR`、
+  `MIO_TOOLS_MANIFEST_URL`、`MIO_NO_TOOL_DOWNLOAD`、`MIO_TOOLS_FORCE_DOWNLOAD`；
+- Release 增加工具包构建（linux-x64 / win32-x64 / darwin-arm64）与 `mio-tools.json` 清单；
+- `mio doctor` 会说明工具链缺什么、首次构建是否会自动下载；
+- 文档补充工具链段落与真实体积。
 ## 0.1.2 — 2026-11-07
 
 - 新增 `fs.copy(from, to)`：复制文件或目录，文件流式写临时文件再改名；

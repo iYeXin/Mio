@@ -4,9 +4,20 @@ export type { MioToolErrorCode, MioToolErrorOptions } from "./errors.js";
 export {
   discoverAndroidTools,
   describeAndroidTools,
+  inspectAndroidTools,
+  statusComplete,
+  toolsFromStatus,
+  describeMissing,
+  type AndroidToolStatus,
   type AndroidTools,
   type DiscoverOptions,
 } from "./discover.js";
+
+export {
+  ensureAndroidTools,
+  type EnsureAndroidToolsOptions,
+  type EnsureAndroidToolsResult,
+} from "./ensure.js";
 
 export {
   alignApk,
@@ -62,8 +73,10 @@ export {
   platformKeyOf,
   type InstallToolBundleOptions,
   type InstalledToolBundle,
+  type ToolBundleComponent,
   type ToolBundleManifest,
   type ToolBundlePlatform,
+  type ToolComponent,
 } from "./tool-bundle.js";
 
 export { run, type ExecOptions, type ExecResult } from "./exec.js";

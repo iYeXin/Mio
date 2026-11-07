@@ -99,6 +99,29 @@
 | `exe` | 自动探测 | 主程序文件名 |
 | `signCommand` | — | 签名命令，`{exe}` 会替换为产物路径 |
 
+## Android 工具链
+
+Android 构建需要 Java 与 Android 的签名/对齐工具。Mio 按这个顺序找：
+
+1. `MIO_ANDROID_TOOLS_DIR` 指向的工具包（`apksigner.jar`、`zipalign`、可选 `jre/`）；
+2. Android SDK build-tools（`ANDROID_HOME` / `ANDROID_SDK_ROOT` / 默认安装位置）；
+3. 以上都没有时，自动下载缺的部分。
+
+自动下载只取缺的组件：本机有 Java 时只下工具（约 1.4 MB），有 build-tools 时只下
+Java 运行时（约 18 MB），都没有则两份都下，合计约 19 MB。下载会校验 sha256，缓存到
+`~/.mio/tools/android/<清单版本>/<平台>/`，之后离线可用。
+
+| 变量 | 作用 |
+|---|---|
+| `MIO_ANDROID_TOOLS_DIR` | 直接指定工具包目录，优先级最高 |
+| `MIO_JAVA_HOME` / `JAVA_HOME` | 使用已有的 Java |
+| `MIO_TOOLS_CACHE_DIR` | 工具包缓存位置 |
+| `MIO_TOOLS_MANIFEST_URL` | 指定工具包清单（镜像或离线包） |
+| `MIO_NO_TOOL_DOWNLOAD=1` | 禁止自动下载，缺工具时直接报错 |
+| `MIO_TOOLS_FORCE_DOWNLOAD=1` | 强制重新下载（修复损坏的缓存） |
+
+下载遵循 `HTTPS_PROXY` / `HTTP_PROXY`。
+
 ## 命令行覆盖
 
 ```bash

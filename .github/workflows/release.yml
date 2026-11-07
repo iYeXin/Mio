@@ -108,9 +108,64 @@ jobs:
           path: mio-windows.zip
           if-no-files-found: error
 
+  tools:
+    name: Build tool bundle (${{ matrix.platform }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux-x64
+          - os: windows-latest
+            platform: win32-x64
+          - os: macos-14
+            platform: darwin-arm64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Build bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          PLATFORM="${{ matrix.platform }}"
+          SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+          if [ -z "$SDK" ]; then echo "::error::Android SDK not found"; exit 1; fi
+          BT="$(ls "$SDK/build-tools" | sort -V | tail -n1)"
+          BT_DIR="$SDK/build-tools/$BT"
+          ALIGN="$BT_DIR/zipalign"
+          [ -f "$ALIGN" ] || ALIGN="$BT_DIR/zipalign.exe"
+          rm -rf staging && mkdir -p staging/tools
+          cp "$BT_DIR/lib/apksigner.jar" staging/tools/apksigner.jar
+          cp "$ALIGN" staging/tools/
+          tar -czf "mio-tools-$PLATFORM-tools.tar.gz" -C staging/tools .
+          "$JAVA_HOME/bin/jlink" --module-path "$JAVA_HOME/jmods" \
+            --add-modules java.base,java.logging --strip-debug --no-man-pages \
+            --no-header-files --compress=zip-6 --output staging/jre
+          tar -czf "mio-tools-$PLATFORM-jre.tar.gz" -C staging/jre .
+          node scripts/write-tools-fragment.mjs --platform "$PLATFORM" \
+            --tools "mio-tools-$PLATFORM-tools.tar.gz" \
+            --jre "mio-tools-$PLATFORM-jre.tar.gz" \
+            --out "manifest-$PLATFORM.json"
+          ls -lh mio-tools-*.tar.gz manifest-*.json
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tools-${{ matrix.platform }}
+          path: |
+            mio-tools-${{ matrix.platform }}-tools.tar.gz
+            mio-tools-${{ matrix.platform }}-jre.tar.gz
+            manifest-${{ matrix.platform }}.json
+          if-no-files-found: error
+
   publish:
     name: Publish release
-    needs: [android, windows]
+    needs: [android, windows, tools]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -120,11 +175,21 @@ jobs:
           pattern: "*-template*"
           merge-multiple: true
 
-      - name: Write manifest
-        run: node scripts/write-template-manifest.mjs
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: "tools-*"
+          merge-multiple: true
+          path: dist-tools
+
+      - name: Write manifests
+        run: |
+          node scripts/write-template-manifest.mjs
+          node scripts/write-tools-manifest.mjs --dir dist-tools \
+            --base "https://github.com/iYeXin/Mio/releases/download/${{ github.ref_name }}" \
+            --out mio-tools.json
 
       - name: Show assets
-        run: ls -lh *.apk *.zip manifest.json
+        run: ls -lh *.apk *.zip manifest.json mio-tools.json dist-tools/*.tar.gz
 
       - name: Create release
         uses: softprops/action-gh-release@v2
@@ -132,8 +197,15 @@ jobs:
           name: Mio ${{ github.ref_name }}
           files: |
             manifest.json
+            mio-tools.json
             mio-shell-universal.apk
             mio-shell-arm64.apk
             mio-shell-x64.apk
             mio-windows.zip
+            dist-tools/mio-tools-linux-x64-tools.tar.gz
+            dist-tools/mio-tools-linux-x64-jre.tar.gz
+            dist-tools/mio-tools-win32-x64-tools.tar.gz
+            dist-tools/mio-tools-win32-x64-jre.tar.gz
+            dist-tools/mio-tools-darwin-arm64-tools.tar.gz
+            dist-tools/mio-tools-darwin-arm64-jre.tar.gz
           fail_on_unmatched_files: true

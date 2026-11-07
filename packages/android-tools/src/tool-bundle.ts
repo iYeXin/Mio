@@ -6,10 +6,20 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import * as tar from "tar";
 import { ProxyAgent, fetch as undiciFetch } from "undici";
-import { discoverAndroidTools, type AndroidTools } from "./discover.js";
 import { MioToolError } from "./errors.js";
 
-export interface ToolBundlePlatform {
+/**
+ * A tool bundle ships two independently downloadable components:
+ *
+ * - `tools`: apksigner.jar + zipalign[.exe] (~1.5 MB)
+ * - `jre`:   a jlink-trimmed Java runtime with java.base + java.logging (~18 MB)
+ *
+ * A machine that already has Java only needs `tools`, and one that has the
+ * Android build-tools only needs `jre`. The installer never re-downloads a
+ * component whose digest still matches.
+ */
+
+export interface ToolBundleComponent {
   /** Archive URL (http:, https:, or file:). */
   url: string;
   /** SHA-256 of the archive. */
@@ -20,16 +30,18 @@ export interface ToolBundlePlatform {
   strip?: number;
 }
 
-export interface ToolBundleManifest {
-  schemaVersion: 1;
-  latest: string;
-  bundles: Record<
-    string,
-    {
-      platforms: Record<string, ToolBundlePlatform>;
-    }
-  >;
+export interface ToolBundlePlatform {
+  tools?: ToolBundleComponent;
+  jre?: ToolBundleComponent;
 }
+
+export interface ToolBundleManifest {
+  schemaVersion: 2;
+  latest: string;
+  bundles: Record<string, { platforms: Record<string, ToolBundlePlatform> }>;
+}
+
+export type ToolComponent = "tools" | "jre";
 
 export interface InstallToolBundleOptions {
   /** Manifest object, local path, or http(s)/file URL. */
@@ -44,25 +56,28 @@ export interface InstallToolBundleOptions {
   proxy?: string;
   /** Re-download even if a cached bundle exists. */
   force?: boolean;
+  /** Which components to install. Defaults to both. */
+  components?: ToolComponent[];
+  log?: (message: string) => void;
 }
 
 export interface InstalledToolBundle {
-  tools: AndroidTools;
   dir: string;
   version: string;
   platform: string;
+  installed: ToolComponent[];
 }
 
 interface CacheMarker {
   version: string;
   platform: string;
-  sha256: string;
+  components: Partial<Record<ToolComponent, string>>;
   installedAt: string;
 }
 
-const MANIFEST_FILE = ".mio-tools.json";
+const MARKER_FILE = ".mio-tools.json";
 
-function platformKeyOf(platform: NodeJS.Platform, arch: string): string {
+export function platformKeyOf(platform: NodeJS.Platform, arch: string): string {
   return `${platform}-${arch}`;
 }
 
@@ -100,9 +115,7 @@ async function fetchBuffer(url: string, proxy: string | undefined): Promise<Buff
   }
 
   const init: Parameters<typeof undiciFetch>[1] = {};
-  if (proxy) {
-    init.dispatcher = new ProxyAgent(proxy);
-  }
+  if (proxy) init.dispatcher = new ProxyAgent(proxy);
 
   let response: Awaited<ReturnType<typeof undiciFetch>>;
   try {
@@ -113,14 +126,12 @@ async function fetchBuffer(url: string, proxy: string | undefined): Promise<Buff
       details: proxy ? `proxy: ${proxy}` : undefined,
     });
   }
-
   if (!response.ok) {
     throw new MioToolError(
       "BUNDLE_DOWNLOAD_FAILED",
       `Failed to download ${url}: HTTP ${response.status}`,
     );
   }
-
   return Buffer.from(await response.arrayBuffer());
 }
 
@@ -144,13 +155,13 @@ async function loadManifest(
   }
 
   const manifest = parsed as Partial<ToolBundleManifest>;
-  if (manifest.schemaVersion !== 1 || typeof manifest.latest !== "string" || !manifest.bundles) {
+  if (manifest.schemaVersion !== 2 || typeof manifest.latest !== "string" || !manifest.bundles) {
     throw new MioToolError("BUNDLE_DOWNLOAD_FAILED", "Unsupported tool bundle manifest");
   }
   return manifest as ToolBundleManifest;
 }
 
-function selectBundle(
+function selectPlatform(
   manifest: ToolBundleManifest,
   version: string,
   platform: string,
@@ -173,17 +184,11 @@ function selectBundle(
 async function readMarker(path: string): Promise<CacheMarker | undefined> {
   try {
     const parsed = JSON.parse(await readFile(path, "utf8")) as Partial<CacheMarker>;
-    if (
-      typeof parsed.version !== "string" ||
-      typeof parsed.platform !== "string" ||
-      typeof parsed.sha256 !== "string"
-    ) {
-      return undefined;
-    }
+    if (typeof parsed.version !== "string" || typeof parsed.platform !== "string") return undefined;
     return {
       version: parsed.version,
       platform: parsed.platform,
-      sha256: parsed.sha256,
+      components: parsed.components ?? {},
       installedAt: parsed.installedAt ?? "",
     };
   } catch {
@@ -191,67 +196,34 @@ async function readMarker(path: string): Promise<CacheMarker | undefined> {
   }
 }
 
-async function validateBundleLayout(dir: string): Promise<void> {
-  const apksigner = [join(dir, "apksigner.jar"), join(dir, "lib", "apksigner.jar")];
-  const zipalign =
-    process.platform === "win32"
-      ? [join(dir, "zipalign.exe"), join(dir, "bin", "zipalign.exe")]
-      : [join(dir, "zipalign"), join(dir, "bin", "zipalign")];
-
-  for (const candidate of apksigner) {
-    if (await exists(candidate)) break;
-    if (candidate === apksigner[apksigner.length - 1]) {
-      throw new MioToolError("BUNDLE_EXTRACT_FAILED", "Tool bundle is missing apksigner.jar");
-    }
+async function componentPresent(dir: string, component: ToolComponent): Promise<boolean> {
+  if (component === "tools") {
+    const jar = [join(dir, "apksigner.jar"), join(dir, "lib", "apksigner.jar")];
+    const align =
+      process.platform === "win32"
+        ? [join(dir, "zipalign.exe"), join(dir, "bin", "zipalign.exe")]
+        : [join(dir, "zipalign"), join(dir, "bin", "zipalign")];
+    return (await anyExists(jar)) && (await anyExists(align));
   }
-  for (const candidate of zipalign) {
-    if (await exists(candidate)) break;
-    if (candidate === zipalign[zipalign.length - 1]) {
-      throw new MioToolError("BUNDLE_EXTRACT_FAILED", "Tool bundle is missing zipalign");
-    }
-  }
+  const java = process.platform === "win32" ? "java.exe" : "java";
+  return await exists(join(dir, "jre", "bin", java));
 }
 
-/**
- * Download, verify, extract, and cache a Mio Android tools bundle.
- *
- * The bundle is a .tar.gz containing apksigner.jar, zipalign[.exe], and
- * optionally jre/. The archive is authenticated by SHA-256 before extraction.
- */
-export async function installToolBundle(
-  options: InstallToolBundleOptions,
-): Promise<InstalledToolBundle> {
-  const proxy = options.proxy ?? defaultProxy();
-  const manifest = await loadManifest(options.manifest, proxy);
-  const version = options.version ?? manifest.latest;
-  const platform = options.platform ?? platformKeyOf(process.platform, process.arch);
-  const entry = selectBundle(manifest, version, platform);
-
-  const cacheDir = options.cacheDir ?? defaultCacheDir();
-  const dest = join(cacheDir, version, platform);
-  const markerPath = join(dest, MANIFEST_FILE);
-
-  await mkdir(cacheDir, { recursive: true });
-
-  if (!options.force) {
-    const marker = await readMarker(markerPath);
-    if (marker?.sha256 === entry.sha256 && (await exists(dest))) {
-      try {
-        const tools = await discoverAndroidTools({
-          env: { ...process.env, MIO_ANDROID_TOOLS_DIR: dest },
-        });
-        return { tools, dir: dest, version, platform };
-      } catch {
-        // Cached bundle is incomplete or corrupt; fall through and reinstall.
-        await rm(dest, { recursive: true, force: true });
-      }
-    }
+async function anyExists(paths: string[]): Promise<boolean> {
+  for (const path of paths) {
+    if (await exists(path)) return true;
   }
+  return false;
+}
 
-  const tempRoot = await mkdtemp(join(cacheDir, ".download-"));
-  const archivePath = join(tempRoot, "tools.tar.gz");
+async function extractComponent(
+  entry: ToolBundleComponent,
+  proxy: string | undefined,
+  target: string,
+): Promise<void> {
+  const tempRoot = await mkdtemp(join(target, "..", ".download-"));
+  const archivePath = join(tempRoot, "component.tar.gz");
   const extractDir = join(tempRoot, "extracted");
-
   try {
     await mkdir(extractDir, { recursive: true });
     const archive = await fetchBuffer(entry.url, proxy);
@@ -278,32 +250,98 @@ export async function installToolBundle(
       preservePaths: false,
     });
 
-    await validateBundleLayout(extractDir);
-
-    await rm(dest, { recursive: true, force: true });
-    await mkdir(dirname(dest), { recursive: true });
-    await rename(extractDir, dest);
-    await writeFile(
-      markerPath,
-      JSON.stringify(
-        {
-          version,
-          platform,
-          sha256: entry.sha256,
-          installedAt: new Date().toISOString(),
-        } satisfies CacheMarker,
-        null,
-        2,
-      ),
-    );
-
-    const tools = await discoverAndroidTools({
-      env: { ...process.env, MIO_ANDROID_TOOLS_DIR: dest },
-    });
-    return { tools, dir: dest, version, platform };
+    await rm(target, { recursive: true, force: true });
+    await mkdir(dirname(target), { recursive: true });
+    await rename(extractDir, target);
   } finally {
     await rm(tempRoot, { recursive: true, force: true });
   }
 }
 
-export { platformKeyOf };
+/**
+ * Download, verify and cache the requested components of a tool bundle.
+ *
+ * Components whose cached digest still matches are kept; only the missing ones
+ * are fetched. Pass `force` to reinstall everything.
+ */
+export async function installToolBundle(
+  options: InstallToolBundleOptions,
+): Promise<InstalledToolBundle> {
+  const log = options.log ?? (() => {});
+  const proxy = options.proxy ?? defaultProxy();
+  const manifest = await loadManifest(options.manifest, proxy);
+  const version = options.version ?? manifest.latest;
+  const platform = options.platform ?? platformKeyOf(process.platform, process.arch);
+  const entry = selectPlatform(manifest, version, platform);
+  const cacheDir = options.cacheDir ?? defaultCacheDir();
+  const dest = join(cacheDir, version, platform);
+  const requested = options.components ?? (["tools", "jre"] as ToolComponent[]);
+
+  await mkdir(dest, { recursive: true });
+  const markerPath = join(dest, MARKER_FILE);
+  const marker = options.force ? undefined : await readMarker(markerPath);
+  const components: Partial<Record<ToolComponent, string>> = {};
+  const installed: ToolComponent[] = [];
+
+  for (const component of requested) {
+    const source = entry[component];
+    if (!source) {
+      throw new MioToolError(
+        "BUNDLE_DOWNLOAD_FAILED",
+        `Tool bundle ${version} has no "${component}" component for ${platform}`,
+      );
+    }
+
+    const cachedDigest = marker?.components[component];
+    const present = await componentPresent(dest, component);
+    if (
+      !options.force &&
+      cachedDigest === source.sha256.toLowerCase() &&
+      present
+    ) {
+      components[component] = cachedDigest;
+      log(`${component}: cached`);
+      continue;
+    }
+
+    const target = component === "tools" ? join(dest, "tools-root") : join(dest, "jre");
+    log(`downloading ${component} (${source.url})`);
+    await extractComponent(source, proxy, target);
+
+    if (component === "tools") {
+      // Move the flat tools archive into the bundle root.
+      for (const name of ["apksigner.jar", "zipalign", "zipalign.exe"]) {
+        const from = join(target, name);
+        if (await exists(from)) await rename(from, join(dest, name));
+      }
+      await rm(target, { recursive: true, force: true });
+    }
+
+    if (!(await componentPresent(dest, component))) {
+      throw new MioToolError(
+        "BUNDLE_EXTRACT_FAILED",
+        `Tool bundle is missing files for "${component}"`,
+      );
+    }
+
+    components[component] = source.sha256.toLowerCase();
+    installed.push(component);
+  }
+
+  const now = new Date().toISOString();
+  await writeFile(
+    markerPath,
+    JSON.stringify(
+      {
+        version,
+        platform,
+        components: { ...(marker?.components ?? {}), ...components },
+        installedAt: now,
+      } satisfies CacheMarker,
+      null,
+      2,
+    ),
+  );
+
+  return { dir: dest, version, platform, installed };
+}

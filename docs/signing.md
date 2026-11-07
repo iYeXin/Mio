@@ -9,7 +9,7 @@ Mio 需要同时处理 Android APK 和 Windows exe 的签名。两者机制完�
 Android 在安装时强制校验签名，未签名 APK 无法安装。targetSdk 30+ 只带 v1 签名的
 APK 在 Android 11+ 也无法安装，所以现代 APK 至少需要 APK Signature Scheme v2。
 
-Mio 使用 AOSP `apksigner`，并固定顺序：
+Mio 使用 AOSP `apksigner`（缺少时会自动下载工具包，见[配置](/configuration#android-工具链)），并固定顺序：
 
 ```text
 修改 APK → zipalign → apksigner sign → apksigner verify → 发布产物

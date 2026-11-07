@@ -8,10 +8,13 @@
 export const MIO_API_VERSION = "1.0.0";
 
 /** Version stamped into generated manifests for traceability. */
-export const MIO_CLI_VERSION = "0.1.2";
+export const MIO_CLI_VERSION = "0.1.3";
+
+/** Where release assets (templates, tool bundles) are published. */
+export const MIO_RELEASE_BASE = "https://github.com/iYeXin/Mio/releases/download";
 
 /** Packages published to npm under the @iyexin scope. */
 export const MIO_API_PACKAGE = "@iyexin/mio-api";
 
 /** Version range written into scaffolds; matches packages/api's version. */
-export const MIO_API_PACKAGE_VERSION = "0.1.2";
+export const MIO_API_PACKAGE_VERSION = "0.1.3";

@@ -7,6 +7,7 @@ Mio 是一个轻量的跨平台开发框架。你用熟悉的 Web 技术写界�
 
 - Node.js 22.12+
 - 构建 Android 应用不需要 Android Studio；构建 Windows 应用不需要 Visual Studio
+- Android 签名需要 Java 与 Android 的签名/对齐工具；机器上没有时，首次构建会自动下载（约 19 MB），已有的部分会跳过
 - 只有想自己重新构建运行时（模板）时，才需要 Flutter 与对应的原生工具链
 
 ## 创建项目

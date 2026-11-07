@@ -17,7 +17,7 @@ import { cliRoot, exists } from "./project.js";
  * CLI version. An explicit path always wins, so teams can ship their own build.
  */
 
-const RELEASE_BASE = "https://github.com/iYeXin/Mio/releases/download";
+import { MIO_RELEASE_BASE } from "./constants.js";
 
 export type TemplateSource = "explicit" | "local" | "cache";
 
@@ -92,7 +92,7 @@ async function readManifest(directory: string): Promise<TemplateManifest | null>
 /** Downloads and unpacks the template bundle into the per-version cache. */
 async function fetchTemplates(log: (message: string) => void): Promise<TemplateManifest> {
   const root = cacheRoot();
-  const manifestUrl = `${RELEASE_BASE}/v${MIO_CLI_VERSION}/manifest.json`;
+  const manifestUrl = `${MIO_RELEASE_BASE}/v${MIO_CLI_VERSION}/manifest.json`;
   log(`Downloading template manifest: ${manifestUrl}`);
   const manifest = JSON.parse(await fetchText(manifestUrl)) as TemplateManifest;
   assertCompatible(manifest, `release v${MIO_CLI_VERSION}`);
@@ -105,7 +105,7 @@ async function fetchTemplates(log: (message: string) => void): Promise<TemplateM
       if ((await sha256(target)) === file.sha256) continue;
       await rm(target, { force: true });
     }
-    const url = `${RELEASE_BASE}/v${MIO_CLI_VERSION}/${file.name}`;
+    const url = `${MIO_RELEASE_BASE}/v${MIO_CLI_VERSION}/${file.name}`;
     log(`Downloading ${key}: ${file.name} (${formatBytes(file.size)})`);
     await fetchToFile(url, target);
     const actual = await sha256(target);

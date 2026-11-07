@@ -1,6 +1,12 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { describeAndroidTools, discoverAndroidTools } from "@iyexin/mio-android-tools";
+import {
+  describeAndroidTools,
+  describeMissing,
+  inspectAndroidTools,
+  statusComplete,
+  toolsFromStatus,
+} from "@iyexin/mio-android-tools";
 import type { LoadedConfig } from "./config.js";
 import {
   androidAbiOf,
@@ -16,12 +22,13 @@ export async function doctor(loaded?: LoadedConfig): Promise<void> {
   console.log(`Node: ${process.version} (${process.platform}-${process.arch})`);
   console.log(`Working directory: ${process.cwd()}`);
 
-  try {
-    const tools = await discoverAndroidTools();
+  const status = await inspectAndroidTools();
+  if (statusComplete(status)) {
     console.log("\nAndroid tools:");
-    console.log(describeAndroidTools(tools));
-  } catch (error) {
-    console.log(`\nAndroid tools: NOT READY — ${message(error)}`);
+    console.log(describeAndroidTools(toolsFromStatus(status)));
+  } else {
+    console.log(`\nAndroid tools: incomplete (${describeMissing(status)})`);
+    console.log("  missing parts are downloaded automatically on the first Android build");
   }
 
   const adb = findAdb();

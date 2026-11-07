@@ -2,7 +2,7 @@ import { mkdtemp, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import {
-  discoverAndroidTools,
+  ensureAndroidTools,
   ensureDebugKeystore,
   injectApk,
   signApk,
@@ -13,6 +13,7 @@ import { createAppAsar } from "./asar.js";
 import { resolveAndroidTemplate } from "./templates.js";
 import { ensureWebBuild } from "./web.js";
 import { safeName } from "./project.js";
+import { MIO_CLI_VERSION, MIO_RELEASE_BASE } from "./constants.js";
 
 export interface BuildAndroidOptions {
   loaded: LoadedConfig;
@@ -34,7 +35,17 @@ export async function buildAndroid(options: BuildAndroidOptions): Promise<BuildA
     explicit: options.template,
     log: (message) => console.error(message),
   });
-  const tools = await discoverAndroidTools();
+  // Missing Java or build-tools are fetched on demand; existing ones are reused.
+  const resolved = await ensureAndroidTools({
+    manifest:
+      process.env.MIO_TOOLS_MANIFEST_URL ??
+      `${MIO_RELEASE_BASE}/v${MIO_CLI_VERSION}/mio-tools.json`,
+    allowDownload: process.env.MIO_NO_TOOL_DOWNLOAD !== "1",
+    force: process.env.MIO_TOOLS_FORCE_DOWNLOAD === "1",
+    cacheDir: process.env.MIO_TOOLS_CACHE_DIR,
+    log: (message) => console.error(`[tools] ${message}`),
+  });
+  const tools = resolved.tools;
 
   const temp = await mkdtemp(join(tmpdir(), "mio-android-build-"));
   const asarPath = join(temp, "app.asar");

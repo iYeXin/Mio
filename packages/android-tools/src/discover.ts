@@ -5,6 +5,8 @@ import { dirname, join } from "node:path";
 import { MioToolError } from "./errors.js";
 import { run } from "./exec.js";
 
+export type ToolSource = "env-bundle" | "android-sdk";
+
 export interface AndroidTools {
   /** Java executable. Absolute path when known, otherwise "java" from PATH. */
   java: string;
@@ -15,13 +17,62 @@ export interface AndroidTools {
   /** keytool executable, when available. */
   keytool?: string;
   /** Where the tools came from. */
-  source: "env-bundle" | "android-sdk";
+  source: ToolSource;
   /** build-tools version, when source is android-sdk. */
   buildToolsVersion?: string;
   /** Android SDK root, when source is android-sdk. */
   sdkRoot?: string;
   /** JRE home, when the tools bundle contains one. */
   jreHome?: string;
+}
+
+/** What a machine currently has; every field is optional. */
+export interface AndroidToolStatus {
+  java?: string;
+  jreHome?: string;
+  keytool?: string;
+  apksignerJar?: string;
+  zipalign?: string;
+  sdkRoot?: string;
+  buildToolsVersion?: string;
+  toolsSource?: ToolSource;
+}
+
+export function statusComplete(status: AndroidToolStatus): status is Required<
+  Pick<AndroidToolStatus, "java" | "apksignerJar" | "zipalign">
+> &
+  AndroidToolStatus {
+  return Boolean(status.java && status.apksignerJar && status.zipalign);
+}
+
+export function toolsFromStatus(status: AndroidToolStatus): AndroidTools {
+  if (!statusComplete(status)) {
+    throw new MioToolError(
+      "ANDROID_TOOLS_NOT_FOUND",
+      "Android build tools are incomplete",
+      { details: describeMissing(status) },
+    );
+  }
+  return {
+    java: status.java,
+    apksignerJar: status.apksignerJar,
+    zipalign: status.zipalign,
+    keytool: status.keytool,
+    source: status.toolsSource ?? "android-sdk",
+    buildToolsVersion: status.buildToolsVersion,
+    sdkRoot: status.sdkRoot,
+    jreHome: status.jreHome,
+  };
+}
+
+export function describeMissing(status: AndroidToolStatus): string {
+  const missing: string[] = [];
+  if (!status.java) missing.push("java");
+  if (!status.apksignerJar) missing.push("apksigner.jar");
+  if (!status.zipalign) missing.push("zipalign");
+  return missing.length === 0
+    ? "nothing missing"
+    : `missing: ${missing.join(", ")}`;
 }
 
 export interface DiscoverOptions {
@@ -109,39 +160,24 @@ async function findJavaFromPath(platform: NodeJS.Platform): Promise<string | und
   return undefined;
 }
 
-async function resolveJava(
+async function tryResolveJava(
   env: NodeJS.ProcessEnv,
   platform: NodeJS.Platform,
   preferredHome?: string,
-): Promise<{ java: string; jreHome?: string }> {
+): Promise<{ java: string; jreHome?: string } | undefined> {
   const fromBundle = await findJavaInHome(preferredHome, platform);
-  if (fromBundle) {
-    return { java: fromBundle, jreHome: preferredHome };
-  }
+  if (fromBundle) return { java: fromBundle, jreHome: preferredHome };
 
   const fromMioHome = await findJavaInHome(env.MIO_JAVA_HOME, platform);
-  if (fromMioHome) {
-    return { java: fromMioHome, jreHome: env.MIO_JAVA_HOME };
-  }
+  if (fromMioHome) return { java: fromMioHome, jreHome: env.MIO_JAVA_HOME };
 
   const fromJavaHome = await findJavaInHome(env.JAVA_HOME, platform);
-  if (fromJavaHome) {
-    return { java: fromJavaHome, jreHome: env.JAVA_HOME };
-  }
+  if (fromJavaHome) return { java: fromJavaHome, jreHome: env.JAVA_HOME };
 
   const fromPath = await findJavaFromPath(platform);
-  if (fromPath) {
-    return { java: fromPath };
-  }
+  if (fromPath) return { java: fromPath };
 
-  throw new MioToolError(
-    "JAVA_NOT_FOUND",
-    "Java was not found. Install a JDK/JRE 17+ or place a JRE at <tools>/jre.",
-    {
-      details:
-        "Set MIO_JAVA_HOME/JAVA_HOME, put java on PATH, or point MIO_ANDROID_TOOLS_DIR at a tools bundle containing jre/.",
-    },
-  );
+  return undefined;
 }
 
 async function resolveKeytool(
@@ -162,51 +198,6 @@ async function resolveKeytool(
   return (await exists(candidate)) ? candidate : undefined;
 }
 
-async function fromToolsDir(
-  dir: string,
-  env: NodeJS.ProcessEnv,
-  platform: NodeJS.Platform,
-): Promise<AndroidTools> {
-  const apksignerCandidates = [
-    join(dir, "apksigner.jar"),
-    join(dir, "lib", "apksigner.jar"),
-  ];
-  const zipalignCandidates = [
-    join(dir, zipalignName(platform)),
-    join(dir, "bin", zipalignName(platform)),
-  ];
-
-  const apksignerJar = await firstExisting(apksignerCandidates);
-  const zipalign = await firstExisting(zipalignCandidates);
-
-  if (!apksignerJar || !zipalign) {
-    throw new MioToolError(
-      "INVALID_TOOLS_DIR",
-      `MIO_ANDROID_TOOLS_DIR does not look like an Android tools bundle: ${dir}`,
-      {
-        details:
-          "Expected apksigner.jar (or lib/apksigner.jar), zipalign, and optionally jre/.",
-      },
-    );
-  }
-
-  const jreHomeCandidate = join(dir, "jre");
-  const jreHome = (await exists(join(jreHomeCandidate, "bin", javaName(platform))))
-    ? jreHomeCandidate
-    : undefined;
-  const { java, jreHome: resolvedJreHome } = await resolveJava(env, platform, jreHome);
-  const keytool = await resolveKeytool(java, platform);
-
-  return {
-    java,
-    apksignerJar,
-    zipalign,
-    keytool,
-    source: "env-bundle",
-    jreHome: resolvedJreHome,
-  };
-}
-
 async function firstExisting(candidates: readonly string[]): Promise<string | undefined> {
   for (const candidate of candidates) {
     if (await exists(candidate)) return candidate;
@@ -214,15 +205,10 @@ async function firstExisting(candidates: readonly string[]): Promise<string | un
   return undefined;
 }
 
-interface BuildToolsMatch {
-  dir: string;
-  version: string;
-}
-
 async function findBuildTools(
   sdkRoot: string,
   platform: NodeJS.Platform,
-): Promise<BuildToolsMatch | undefined> {
+): Promise<{ dir: string; version: string } | undefined> {
   const buildToolsRoot = join(sdkRoot, "build-tools");
   let versions: string[];
   try {
@@ -253,49 +239,69 @@ async function findBuildTools(
   return undefined;
 }
 
-async function fromAndroidSdk(
-  env: NodeJS.ProcessEnv,
-  platform: NodeJS.Platform,
-): Promise<AndroidTools> {
-  const roots = candidateSdkRoots(env, platform);
-  for (const sdkRoot of roots) {
-    if (!(await exists(sdkRoot))) continue;
-    const match = await findBuildTools(sdkRoot, platform);
-    if (!match) continue;
+/**
+ * Inspect what the machine has without throwing.
+ *
+ * Tools come from `MIO_ANDROID_TOOLS_DIR` first (a Mio bundle) and then the
+ * Android SDK build-tools; Java from the bundle's `jre/`, `MIO_JAVA_HOME`,
+ * `JAVA_HOME`, or `PATH`. A partial result is normal: a machine may have Java
+ * but no build-tools, or the other way round.
+ */
+export async function inspectAndroidTools(
+  options: DiscoverOptions = {},
+): Promise<AndroidToolStatus> {
+  const env = options.env ?? process.env;
+  const platform = options.platform ?? process.platform;
+  const status: AndroidToolStatus = {};
 
-    const apksignerJar = await firstExisting([
-      join(match.dir, "lib", "apksigner.jar"),
-      join(match.dir, "apksigner.jar"),
+  const toolsDir = env.MIO_ANDROID_TOOLS_DIR;
+  if (toolsDir) {
+    status.apksignerJar = await firstExisting([
+      join(toolsDir, "apksigner.jar"),
+      join(toolsDir, "lib", "apksigner.jar"),
     ]);
-    const zipalign = await firstExisting([
-      join(match.dir, zipalignName(platform)),
-      join(match.dir, "bin", zipalignName(platform)),
+    status.zipalign = await firstExisting([
+      join(toolsDir, zipalignName(platform)),
+      join(toolsDir, "bin", zipalignName(platform)),
     ]);
-    if (!apksignerJar || !zipalign) continue;
+    if (status.apksignerJar && status.zipalign) status.toolsSource = "env-bundle";
 
-    const { java, jreHome } = await resolveJava(env, platform);
-    const keytool = await resolveKeytool(java, platform);
-
-    return {
-      java,
-      apksignerJar,
-      zipalign,
-      keytool,
-      source: "android-sdk",
-      buildToolsVersion: match.version,
-      sdkRoot,
-      jreHome,
-    };
+    const jreHome = join(toolsDir, "jre");
+    if (await exists(join(jreHome, "bin", javaName(platform)))) {
+      status.jreHome = jreHome;
+    }
   }
 
-  throw new MioToolError(
-    "ANDROID_TOOLS_NOT_FOUND",
-    "Android build-tools (apksigner + zipalign) were not found.",
-    {
-      details:
-        "Set ANDROID_HOME (or MIO_ANDROID_SDK), install Android build-tools 35+, or point MIO_ANDROID_TOOLS_DIR at a Mio tools bundle.",
-    },
-  );
+  if (!status.apksignerJar || !status.zipalign) {
+    for (const root of candidateSdkRoots(env, platform)) {
+      if (!(await exists(root))) continue;
+      const match = await findBuildTools(root, platform);
+      if (!match) continue;
+      status.apksignerJar = await firstExisting([
+        join(match.dir, "lib", "apksigner.jar"),
+        join(match.dir, "apksigner.jar"),
+      ]);
+      status.zipalign = await firstExisting([
+        join(match.dir, zipalignName(platform)),
+        join(match.dir, "bin", zipalignName(platform)),
+      ]);
+      if (status.apksignerJar && status.zipalign) {
+        status.toolsSource = "android-sdk";
+        status.sdkRoot = root;
+        status.buildToolsVersion = match.version;
+        break;
+      }
+    }
+  }
+
+  const java = await tryResolveJava(env, platform, status.jreHome);
+  if (java) {
+    status.java = java.java;
+    status.jreHome = java.jreHome ?? status.jreHome;
+    status.keytool = await resolveKeytool(java.java, platform);
+  }
+
+  return status;
 }
 
 /**
@@ -304,18 +310,34 @@ async function fromAndroidSdk(
  * Priority:
  * 1. MIO_ANDROID_TOOLS_DIR (a downloaded/bundled toolchain)
  * 2. ANDROID_HOME / ANDROID_SDK_ROOT / default SDK locations
+ *
+ * Throws with a message that says exactly what is missing.
  */
 export async function discoverAndroidTools(
   options: DiscoverOptions = {},
 ): Promise<AndroidTools> {
-  const env = options.env ?? process.env;
-  const platform = options.platform ?? process.platform;
-
-  if (env.MIO_ANDROID_TOOLS_DIR) {
-    return await fromToolsDir(env.MIO_ANDROID_TOOLS_DIR, env, platform);
+  const status = await inspectAndroidTools(options);
+  if (!status.java) {
+    throw new MioToolError(
+      "JAVA_NOT_FOUND",
+      "Java was not found. Install a JDK/JRE 17+ or let Mio download one.",
+      {
+        details:
+          "Set MIO_JAVA_HOME/JAVA_HOME, put java on PATH, or set MIO_ANDROID_TOOLS_DIR to a tools bundle containing jre/.",
+      },
+    );
   }
-
-  return await fromAndroidSdk(env, platform);
+  if (!status.apksignerJar || !status.zipalign) {
+    throw new MioToolError(
+      "ANDROID_TOOLS_NOT_FOUND",
+      "Android build-tools (apksigner + zipalign) were not found.",
+      {
+        details:
+          "Set ANDROID_HOME (or MIO_ANDROID_SDK), install Android build-tools 35+, or point MIO_ANDROID_TOOLS_DIR at a Mio tools bundle.",
+      },
+    );
+  }
+  return toolsFromStatus(status);
 }
 
 export function describeAndroidTools(tools: AndroidTools): string {
