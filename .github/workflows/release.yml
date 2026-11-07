@@ -118,7 +118,7 @@ jobs:
             platform: linux-x64
           - os: windows-latest
             platform: win32-x64
-          - os: macos-14
+          - os: macos-latest
             platform: darwin-arm64
     runs-on: ${{ matrix.os }}
     steps:
@@ -202,10 +202,5 @@ jobs:
             mio-shell-arm64.apk
             mio-shell-x64.apk
             mio-windows.zip
-            dist-tools/mio-tools-linux-x64-tools.tar.gz
-            dist-tools/mio-tools-linux-x64-jre.tar.gz
-            dist-tools/mio-tools-win32-x64-tools.tar.gz
-            dist-tools/mio-tools-win32-x64-jre.tar.gz
-            dist-tools/mio-tools-darwin-arm64-tools.tar.gz
-            dist-tools/mio-tools-darwin-arm64-jre.tar.gz
+            dist-tools/*.tar.gz
           fail_on_unmatched_files: true
