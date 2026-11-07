@@ -1,10 +1,12 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
 
 import 'errors.dart';
+import 'launch_args.dart';
 
 /// Maximum number of bytes carried by one `process.stdout` / `process.stderr`
 /// event. Larger writes from the child are split, so a chatty process cannot
@@ -91,11 +93,158 @@ class MioProcessManager {
         return kill(params);
       case 'process.list':
         return list();
+      case 'process.exec':
+        return exec(params);
+      case 'process.pid':
+        return appPid();
+      case 'process.env':
+        return environment(params);
+      case 'process.args':
+        return launchArgs();
       default:
         throw MioApiException(
           'METHOD_NOT_FOUND',
           'Unknown Mio process method: $method',
         );
+    }
+  }
+
+  /// Runs a command to completion and returns its output.
+  ///
+  /// `command` goes through `cmd.exe /c` (a real shell command); `path` + `args`
+  /// starts an executable directly, and `path` still obeys the sandbox roots.
+  Future<Object?> exec(Map<String, dynamic> params) async {
+    final command = _optionalString(params, 'command');
+    final requestedPath = _optionalString(params, 'path');
+    if (command == null && requestedPath == null) {
+      throw MioApiException(
+        'BAD_REQUEST',
+        'exec needs either command or path',
+      );
+    }
+
+    final String executable;
+    final List<String> args;
+    final String? requestedCwd = _optionalString(params, 'cwd');
+    final String cwd;
+    if (command != null) {
+      executable = Platform.environment['COMSPEC'] ?? 'cmd.exe';
+      args = <String>['/c', command];
+      cwd = requestedCwd == null
+          ? Platform.environment['SystemRoot'] ?? Directory.current.path
+          : await resolveDirectory(requestedCwd);
+    } else {
+      executable = await resolveExecutable(requestedPath!);
+      args = _optionalStringList(params, 'args');
+      cwd = requestedCwd == null
+          ? p.dirname(executable)
+          : await resolveDirectory(requestedCwd);
+    }
+
+    final maxOutput = _optionalInt(params, 'maxOutputBytes') ?? 1024 * 1024;
+    final timeoutMs = (_optionalInt(params, 'timeoutMs') ?? 30000).clamp(1000, 300000);
+    final started = DateTime.now();
+
+    final Process process;
+    try {
+      process = await Process.start(
+        executable,
+        args,
+        workingDirectory: cwd,
+        environment: _optionalStringMap(params, 'env'),
+        includeParentEnvironment: true,
+        runInShell: false,
+      );
+    } on ProcessException catch (error) {
+      throw MioApiException(
+        'PROCESS_START_FAILED',
+        error.message.isEmpty ? 'Could not start process' : error.message,
+        {'path': executable},
+      );
+    }
+
+    final stdout = BytesBuilder(copy: false);
+    final stderr = BytesBuilder(copy: false);
+    var truncated = false;
+
+    void collect(BytesBuilder target, List<int> chunk) {
+      if (target.length >= maxOutput) {
+        truncated = true;
+        return;
+      }
+      final remaining = maxOutput - target.length;
+      target.add(chunk.length <= remaining ? chunk : chunk.sublist(0, remaining));
+      if (chunk.length > remaining) truncated = true;
+    }
+
+    final stdoutDone = process.stdout.forEach((chunk) => collect(stdout, chunk));
+    final stderrDone = process.stderr.forEach((chunk) => collect(stderr, chunk));
+
+    final input = _optionalString(params, 'stdin');
+    if (input != null) {
+      process.stdin.write(input);
+    }
+    await process.stdin.close();
+
+    final exitCode = await Future.any<int>([
+      process.exitCode,
+      Future<int>.delayed(Duration(milliseconds: timeoutMs), () {
+        procKill(process);
+        return -1;
+      }),
+    ]);
+    await Future.wait<void>([stdoutDone, stderrDone]);
+
+    final durationMs = DateTime.now().difference(started).inMilliseconds;
+    if (exitCode == -1) {
+      throw MioApiException(
+        'PROCESS_TIMEOUT',
+        'Command did not finish within ${timeoutMs}ms',
+        {'timeoutMs': timeoutMs},
+      );
+    }
+
+    return <String, Object?>{
+      'code': exitCode,
+      'pid': process.pid,
+      'stdout': utf8.decode(stdout.takeBytes(), allowMalformed: true),
+      'stderr': utf8.decode(stderr.takeBytes(), allowMalformed: true),
+      'durationMs': durationMs,
+      'truncated': truncated,
+    };
+  }
+
+  /// The application's own process id.
+  Object appPid() => <String, Object?>{'pid': pid};
+
+  /// Environment variables of the application process.
+  Object environment([Map<String, dynamic> params = const {}]) {
+    final names = _optionalStringList(params, 'names');
+    final all = Platform.environment;
+    if (names.isEmpty) return <String, Object?>{'env': all};
+    return <String, Object?>{
+      'env': <String, Object?>{
+        for (final name in names)
+          if (all.containsKey(name)) name: all[name],
+      },
+    };
+  }
+
+  /// The application's own launch arguments.
+  Object launchArgs() => <String, Object?>{'args': mioLaunchArguments()};
+
+  int? _optionalInt(Map<String, dynamic> params, String key) {
+    final value = params[key];
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    return null;
+  }
+
+  void procKill(Process process) {
+    try {
+      process.kill();
+    } catch (_) {
+      // The process may already be gone.
     }
   }
 

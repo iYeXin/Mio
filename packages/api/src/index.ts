@@ -361,6 +361,38 @@ export const processApi = {
 
   list: (): Promise<ProcessInfo[]> => invoke("process.list"),
 
+  /**
+   * Runs a command to completion and captures its output. `command` goes
+   * through `cmd.exe /c`; `path` starts a sandbox executable directly.
+   */
+  exec: (options: {
+    command?: string;
+    path?: string;
+    args?: string[];
+    cwd?: string;
+    env?: Record<string, string>;
+    stdin?: string;
+    timeoutMs?: number;
+    maxOutputBytes?: number;
+  }): Promise<{
+    code: number;
+    pid: number;
+    stdout: string;
+    stderr: string;
+    durationMs: number;
+    truncated: boolean;
+  }> => invoke("process.exec", options),
+
+  /** The Mio application's own process id. */
+  pid: (): Promise<{ pid: number }> => invoke("process.pid"),
+
+  /** Environment of the application process; pass names to filter. */
+  env: (names?: string[]): Promise<{ env: Record<string, string> }> =>
+    invoke("process.env", names ? { names } : {}),
+
+  /** Arguments the application itself was started with. */
+  args: (): Promise<{ args: string[] }> => invoke("process.args"),
+
   /** stdout chunks; concatenate `bytes` — chunk boundaries are arbitrary. */
   onStdout: (handler: (chunk: ProcessChunk) => void): Promise<() => void> =>
     subscribeProcessStream("process.stdout", handler),

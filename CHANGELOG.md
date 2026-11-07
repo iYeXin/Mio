@@ -36,6 +36,12 @@
 - 新增 `share.text` / `share.file`（基于 `share_plus`）；
 - 窗口初始状态写进 `mio.config.json` 的 `window`（`x`/`y`/`center`/`resizable`/
   `decorations`/`alwaysOnTop`/`minWidth`/`minHeight`），启动时在首帧前应用，避免闪烁；
+- 窗口 API 补充：`window.setVisible`、`setHasShadow`（DWM 阴影，无边框时带圆角）、
+  `setMenuBarVisible`、`focus` / `blur`，`window.state` 增加 `isVisible` / `isFocused` /
+  `hasShadow`；
+- 进程 API 补充（Windows）：`process.exec`（`command` 走 `cmd.exe /c`，`path` 直接启动，
+  收集 stdout/stderr、超时与截断）、`process.pid`（应用自身 pid）、`process.env`、
+  `process.args`（应用自己的启动参数）；
 - 模板新增 `POST_NOTIFICATIONS`、`FOREGROUND_SERVICE`、`FOREGROUND_SERVICE_DATA_SYNC`
   权限与 `MioForegroundService` 声明；
 - 新增 `tools/verification/platform` 验证应用。

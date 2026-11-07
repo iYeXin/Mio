@@ -95,6 +95,9 @@
         ["media.pickImage", "opens the gallery picker (manual)"],
         ["foreground.start/stop", "starts the Android foreground service"],
         ["window.setDecorations", "toggles decorations and resizes (Windows)"],
+        ["window visibility / shadow", "hide+show, shadow toggle, state fields"],
+        ["process.exec", "runs `cmd /c echo` and captures stdout"],
+        ["process.pid / env / args", "app pid, PATH present, launch args array"],
       ];
 
       const list = document.getElementById("cases");
@@ -309,6 +312,48 @@
             settle(10, before.width > 0, "decorations off/on, min size applied");
           } catch (error) {
             settle(10, false, String(error.message || error));
+          }
+        }
+
+        if (!features.window) {
+          settleState(11, "SKIP", "window control unavailable", "wait");
+        } else {
+          try {
+            await window.Mio.invoke("window.setHasShadow", { hasShadow: true });
+            await window.Mio.invoke("window.setVisible", { visible: false });
+            await window.Mio.invoke("window.setVisible", { visible: true });
+            const state = await window.Mio.invoke("window.state");
+            settle(11, state.isVisible === true && state.hasShadow === true,
+              "visible=" + state.isVisible + " shadow=" + state.hasShadow +
+              " focused=" + state.isFocused);
+          } catch (error) {
+            settle(11, false, String(error.message || error));
+          }
+        }
+
+        if (!features.process) {
+          settleState(12, "SKIP", "process API is Windows only", "wait");
+          settleState(13, "SKIP", "process API is Windows only", "wait");
+        } else {
+          try {
+            const result = await window.Mio.invoke("process.exec", {
+              command: "echo mio-exec",
+              timeoutMs: 10000,
+            });
+            settle(12, result.code === 0 && result.stdout.includes("mio-exec"),
+              "exit " + result.code + " · " + result.durationMs + " ms");
+          } catch (error) {
+            settle(12, false, String(error.message || error));
+          }
+          try {
+            const pid = await window.Mio.invoke("process.pid");
+            const env = await window.Mio.invoke("process.env", { names: ["PATH"] });
+            const args = await window.Mio.invoke("process.args");
+            settle(13, pid.pid > 0 && (env.env.PATH || "").length > 0 && Array.isArray(args.args),
+              "pid " + pid.pid + " · PATH " + (env.env.PATH ? "present" : "missing") +
+              " · args " + args.args.length);
+          } catch (error) {
+            settle(13, false, String(error.message || error));
           }
         }
 

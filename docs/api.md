@@ -356,6 +356,10 @@ await processApi.onExit(({ id, code }) => console.log(id, "exited", code));
 | `processApi.closeStdin(id)` | `void` |
 | `processApi.kill(id, signal?)` | `{ id, pid, killed }`，`signal` 为 `"term"`（默认）或 `"kill"` |
 | `processApi.list()` | `{ id, pid, executable }[]` |
+| `processApi.exec({ command?, path?, args?, cwd?, env?, stdin?, timeoutMs?, maxOutputBytes? })` | 跑完整个命令并收集输出，返回 `{ code, pid, stdout, stderr, durationMs, truncated }` |
+| `processApi.pid()` | 应用自己的 pid：`{ pid }` |
+| `processApi.env(names?)` | 应用进程的环境变量：`{ env }`，`names` 可过滤 |
+| `processApi.args()` | 应用自己的启动参数：`{ args }` |
 
 事件：
 
@@ -381,6 +385,21 @@ await processApi.onExit(({ id, code }) => console.log(id, "exited", code));
   进程崩溃或被强杀时可能残留，**孙进程不跟踪**，需要子进程自行管理；
 - 侧车与主进程同用户权限，应用代码必须是可信代码。
 
+## processApi 补充说明
+
+`exec` 的两种模式：
+
+```ts
+// 系统命令，走 cmd.exe /c
+await processApi.exec({ command: "dir /b", cwd: "downloads" });
+
+// 沙箱里的可执行文件，直接启动（仍受目录策略约束）
+await processApi.exec({ path: "sidecar/tool.exe", args: ["--json"], stdin: "\n" });
+```
+
+输出各截断到 `maxOutputBytes`（默认 1 MB），`truncated` 标记是否截断。`command`
+模式是真正的 shell 执行，只应在应用自己控制的内容上使用。
+
 ## windowApi（Windows）
 
 | 方法 | 说明 |
@@ -400,7 +419,12 @@ await processApi.onExit(({ id, code }) => console.log(id, "exited", code));
 | `windowApi.startDragging()` | 开始原生拖动，从自绘标题栏的 pointer-down 调用 |
 | `windowApi.setResizable(bool)` | 是否允许缩放 |
 | `windowApi.setMinimumSize(width, height)` | 最小尺寸 |
-| `windowApi.onState(handler)` | 移动/缩放/最大化后推送 `window.state` |
+| `windowApi.setVisible(bool)` | 显示/隐藏窗口 |
+| `windowApi.setMenuBarVisible(bool)` | 原生菜单栏显隐（模板默认没有菜单，调用会报告实际情况） |
+| `windowApi.setHasShadow(bool)` | DWM 窗口阴影；无边框窗口下带小圆角 |
+| `windowApi.focus()` / `windowApi.blur()` | 聚焦/失焦 |
+| `windowApi.setSize(width, height)` | 设置窗口尺寸 |
+| `windowApi.onState(handler)` | 移动/缩放/最大化后推送 `window.state`，含 `isVisible` / `isFocused` / `hasShadow` |
 
 Android 上 `windowApi` 返回 `supported: false`，动作调用会抛 `UNSUPPORTED`。
 
@@ -455,6 +479,7 @@ Promise 会以 `MioError` 拒绝，带 `code`、`message`、`data`：
 | `PROCESS_STDIN_CLOSED` | 进程的 stdin 已关闭 |
 | `PROCESS_WRITE_FAILED` | 关闭 stdin 时出错 |
 | `PROCESS_LIMIT` | 并发侧车进程超过上限（32） |
+| `PROCESS_TIMEOUT` | `processApi.exec` 超时（默认 30 秒，最大 300 秒） |
 | `NATIVE_NOT_FOUND` | 应用内容里没有这个库（`native/<abi>/<name>.<ext>`） |
 | `NATIVE_UNAVAILABLE` | 当前平台不支持，或 dev 模式没有应用归档 |
 | `NATIVE_INVALID` | 不是动态库，或 ABI 与当前进程不符 |

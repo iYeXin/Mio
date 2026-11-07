@@ -198,6 +198,22 @@ class MioApi with WidgetsBindingObserver {
         return await _windowCall(
           () => windowActions.setFullScreen(params['fullScreen'] == true),
         );
+      case 'window.setVisible':
+        return await _windowCall(
+          () => windowActions.setVisible(params['visible'] != false),
+        );
+      case 'window.setMenuBarVisible':
+        return await _windowCall(
+          () => windowActions.setMenuBarVisible(params['visible'] != false),
+        );
+      case 'window.setHasShadow':
+        return await _windowCall(
+          () => windowActions.setHasShadow(params['hasShadow'] != false),
+        );
+      case 'window.focus':
+        return await _windowCall(() => windowActions.focus());
+      case 'window.blur':
+        return await _windowCall(() => windowActions.blur());
       case 'window.setDecorations':
         return await _windowCall(
           () => windowActions.setDecorations(params['decorations'] != false),

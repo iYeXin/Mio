@@ -22,6 +22,19 @@ abstract class WindowActions {
   Future<void> setResizable(bool resizable);
 
   Future<void> setMinimumSize(int width, int height);
+
+  Future<void> setVisible(bool visible);
+
+  /// Windows only: toggles the native menu bar and reports whether one exists.
+  Future<Map<String, Object?>> setMenuBarVisible(bool visible);
+
+  /// Windows only: DWM shadow; with a frameless window it draws the rounded
+  /// edge that custom title bars rely on.
+  Future<void> setHasShadow(bool hasShadow);
+
+  Future<void> focus();
+
+  Future<void> blur();
   Future<Map<String, Object?>> getState();
 }
 
@@ -76,6 +89,21 @@ class UnsupportedWindowActions implements WindowActions {
 
   @override
   Future<void> setMinimumSize(int width, int height) async => _unsupported();
+
+  @override
+  Future<void> setVisible(bool visible) async => _unsupported();
+
+  @override
+  Future<Map<String, Object?>> setMenuBarVisible(bool visible) async => _unsupported();
+
+  @override
+  Future<void> setHasShadow(bool hasShadow) async => _unsupported();
+
+  @override
+  Future<void> focus() async => _unsupported();
+
+  @override
+  Future<void> blur() async => _unsupported();
 
   @override
   Future<Map<String, Object?>> getState() async => {
