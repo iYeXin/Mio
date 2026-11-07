@@ -1,18 +1,20 @@
 import { defineConfig } from 'vitepress'
 
 const repo = 'https://github.com/iYeXin/Mio'
+// The site is served under this sub-path; VitePress prefixes assets and links.
+const base = '/mio/'
 
 export default defineConfig({
   lang: 'zh-CN',
+  base,
   title: 'Mio',
-  description: '把 Web 应用打包成 Android APK 和 Windows 桌面应用',
-  // Working notes stay local and are not part of the site.
+  description: '轻量的跨平台应用开发框架：用 Web 技术写界面，构建 Android 与 Windows 应用',
   // Maintainer notes and internal design docs stay in the repo, not on the site.
   srcExclude: ['local/**', 'architecture.md', 'template-maintenance.md', 'release.md'],
   cleanUrls: true,
   lastUpdated: true,
   head: [
-    ['link', { rel: 'icon', type: 'image/svg+xml', href: '/logo-light.svg' }],
+    ['link', { rel: 'icon', type: 'image/svg+xml', href: `${base}logo-light.svg` }],
     ['meta', { name: 'theme-color', content: '#fbfaf7' }],
   ],
   themeConfig: {
