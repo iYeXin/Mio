@@ -1,7 +1,7 @@
 name: Release
 
 # Building templates is the slow part, so this runs on a version tag (or by hand).
-#   git tag -a v0.1.0 -m "Mio 0.1.0" && git push --follow-tags
+#   git tag -a v0.1.1 -m "Mio 0.1.1" && git push --follow-tags
 #
 # Assets produced (same names the CLI downloads):
 #   manifest.json, mio-shell-universal.apk, mio-shell-arm64.apk, mio-shell-x64.apk,
@@ -37,20 +37,27 @@ jobs:
 
       - run: flutter pub get
 
+      - name: Resolve template version
+        shell: bash
+        run: echo "MIO_TEMPLATE_VERSION=$(node -p "require('../package.json').version")" >> "$GITHUB_ENV"
+
       - name: Build universal
         run: |
           flutter build apk --release -t lib/main_android.dart \
-            --target-platform android-arm,android-arm64,android-x64
+            --target-platform android-arm,android-arm64,android-x64 \
+            --dart-define=MIO_TEMPLATE_VERSION="$MIO_TEMPLATE_VERSION"
           cp build/app/outputs/flutter-apk/app-release.apk ../mio-shell-universal.apk
 
       - name: Build arm64
         run: |
-          flutter build apk --release -t lib/main_android.dart --target-platform android-arm64
+          flutter build apk --release -t lib/main_android.dart --target-platform android-arm64 \
+            --dart-define=MIO_TEMPLATE_VERSION="$MIO_TEMPLATE_VERSION"
           cp build/app/outputs/flutter-apk/app-release.apk ../mio-shell-arm64.apk
 
       - name: Build x64
         run: |
-          flutter build apk --release -t lib/main_android.dart --target-platform android-x64
+          flutter build apk --release -t lib/main_android.dart --target-platform android-x64 \
+            --dart-define=MIO_TEMPLATE_VERSION="$MIO_TEMPLATE_VERSION"
           cp build/app/outputs/flutter-apk/app-release.apk ../mio-shell-x64.apk
 
       - uses: actions/upload-artifact@v4
@@ -76,8 +83,14 @@ jobs:
 
       - run: flutter pub get
 
+      - name: Resolve template version
+        shell: pwsh
+        run: |
+          $version = (Get-Content ../package.json -Raw | ConvertFrom-Json).version
+          "MIO_TEMPLATE_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
       - name: Build
-        run: flutter build windows --release -t lib/main_windows.dart
+        run: flutter build windows --release -t lib/main_windows.dart --dart-define=MIO_TEMPLATE_VERSION="$env:MIO_TEMPLATE_VERSION"
 
       - name: Package
         shell: pwsh

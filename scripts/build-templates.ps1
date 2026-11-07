@@ -15,6 +15,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
+$templateVersion = (Get-Content (Join-Path $root "package.json") -Raw | ConvertFrom-Json).version
 $shell = Join-Path $root "shell"
 $androidDir = Join-Path $root "packages\cli\templates\android"
 $windowsDir = Join-Path $root "packages\cli\templates\windows"
@@ -22,7 +23,7 @@ $windowsDir = Join-Path $root "packages\cli\templates\windows"
 function Build-Android([string]$targets, [string]$name) {
   Push-Location $shell
   try {
-    $args = @("build", "apk", "--release", "-t", "lib/main_android.dart")
+    $args = @("build", "apk", "--release", "-t", "lib/main_android.dart", "--dart-define=MIO_TEMPLATE_VERSION=$templateVersion")
     if ($targets) { $args += @("--target-platform", $targets) }
     & flutter @args
     if ($LASTEXITCODE -ne 0) { throw "flutter build apk failed ($name)" }
@@ -44,7 +45,7 @@ if ($Platform -in @("all", "android")) {
 if ($Platform -in @("all", "windows")) {
   Push-Location $shell
   try {
-    & flutter build windows --release -t lib/main_windows.dart
+    & flutter build windows --release -t lib/main_windows.dart "--dart-define=MIO_TEMPLATE_VERSION=$templateVersion"
     if ($LASTEXITCODE -ne 0) { throw "flutter build windows failed" }
   } finally {
     Pop-Location

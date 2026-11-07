@@ -18,7 +18,13 @@ import 'window_actions.dart';
 export 'errors.dart' show MioApiException;
 
 const String mioApiVersion = '1.0.0';
-const String mioTemplateVersion = '0.1.0';
+
+/// Template build version. CI passes it with --dart-define so the shell reports
+/// the same version as the release manifest.
+const String mioTemplateVersion = String.fromEnvironment(
+  'MIO_TEMPLATE_VERSION',
+  defaultValue: '0.1.1',
+);
 
 final GlobalKey<NavigatorState> mioNavigatorKey = GlobalKey<NavigatorState>();
 
