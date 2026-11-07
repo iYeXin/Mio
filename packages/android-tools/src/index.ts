@@ -38,7 +38,12 @@ export {
   type SignerCertificate,
 } from "./apksigner.js";
 
-export { ensureDebugKeystore, type DebugKeystoreOptions } from "./keystore.js";
+export {
+  ensureDebugKeystore,
+  generateKeystore,
+  type DebugKeystoreOptions,
+  type KeystoreOptions,
+} from "./keystore.js";
 
 export {
   parseAxml,

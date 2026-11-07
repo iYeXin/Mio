@@ -7,6 +7,7 @@ import { buildAndroid } from "./build-android.js";
 import { buildWindows } from "./build-windows.js";
 import { dev } from "./dev.js";
 import { doctor } from "./doctor.js";
+import { keystoreCommand } from "./keystore-command.js";
 import { exists } from "./project.js";
 
 const HELP = `Mio — lightweight cross-platform app framework
@@ -15,6 +16,7 @@ Usage:
   mio create [target]
   mio build [--platform android|windows] [--skip-web] [--template <path>] [--config mio.config.json]
   mio dev --platform android|windows [--no-install] [--template <path>]
+  mio keystore [--out <path>] [--alias <name>] [--dname <dn>] [--days <n>] [--force]
   mio doctor
 
 Examples:
@@ -36,6 +38,12 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
       config: { type: "string" },
       "skip-web": { type: "boolean" },
       "no-install": { type: "boolean" },
+      out: { type: "string" },
+      alias: { type: "string" },
+      dname: { type: "string" },
+      days: { type: "string" },
+      force: { type: "boolean" },
+      "password-env": { type: "string" },
     },
   });
 
@@ -85,6 +93,23 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
       const loaded = await loadConfig(process.cwd(), values.config);
       const platform = normalizePlatforms(values.platform)[0] ?? "windows";
       await dev({ loaded, platform, install: !values["no-install"], template: values.template });
+      return;
+    }
+    case "keystore": {
+      const loaded = await loadConfig(process.cwd(), values.config);
+      const days = values.days ? Number.parseInt(values.days, 10) : undefined;
+      if (days !== undefined && (!Number.isFinite(days) || days <= 0)) {
+        throw new Error(`Invalid --days: ${values.days}`);
+      }
+      await keystoreCommand({
+        loaded,
+        out: values.out,
+        alias: values.alias,
+        distinguishedName: values.dname,
+        validityDays: days,
+        force: values.force ?? false,
+        passwordEnv: values["password-env"],
+      });
       return;
     }
     case "doctor": {

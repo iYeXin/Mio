@@ -61,7 +61,7 @@ export async function createProject(options: CreateOptions): Promise<void> {
 
   await writeFile(
     join(target, ".gitignore"),
-    ["node_modules/", "dist/", "build/", ".mio/debug.p12", "*.log", ""].join("\n"),
+    ["node_modules/", "dist/", "build/", ".mio/*.p12", "*.log", ""].join("\n"),
     "utf8",
   );
 

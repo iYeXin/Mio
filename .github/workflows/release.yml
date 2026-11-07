@@ -145,7 +145,7 @@ jobs:
           cp "$ALIGN" staging/tools/
           tar -czf "mio-tools-$PLATFORM-tools.tar.gz" -C staging/tools .
           "$JAVA_HOME/bin/jlink" --module-path "$JAVA_HOME/jmods" \
-            --add-modules java.base,java.logging --strip-debug --no-man-pages \
+            --add-modules java.base,java.logging,jdk.crypto.ec --strip-debug --no-man-pages \
             --no-header-files --compress=zip-6 --output staging/jre
           tar -czf "mio-tools-$PLATFORM-jre.tar.gz" -C staging/jre .
           node scripts/write-tools-fragment.mjs --platform "$PLATFORM" \

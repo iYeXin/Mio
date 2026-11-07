@@ -122,6 +122,22 @@ Java 运行时（约 18 MB），都没有则两份都下，合计约 19 MB。下
 
 下载遵循 `HTTPS_PROXY` / `HTTP_PROXY`。
 
+## 生成签名证书
+
+工具包里带 `keytool`，没有 JDK 的机器也能生成自己的签名证书：
+
+```bash
+export MIO_KS_PASS='<password>'          # PowerShell: $env:MIO_KS_PASS = "<password>"
+npx @iyexin/mio-cli keystore --out .mio/release.p12 --alias release \
+  --dname "CN=Your Name, O=Your Org, C=CN"
+```
+
+命令会打印一段可以直接粘进 `mio.config.json` 的配置。密码只从环境变量读取，
+通过 `keytool -storepass:env` 传入，不会出现在命令行参数里。已有同名文件时加
+`--force` 覆盖。
+
+`--days` 控制有效期（默认 10000 天），`--password-env` 可以换一个环境变量名。
+
 ## 命令行覆盖
 
 ```bash

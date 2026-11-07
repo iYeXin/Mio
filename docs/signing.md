@@ -75,6 +75,14 @@ zipalign -c -v -P 16 4 build/mio/android/App.apk
 对齐在签名前完成（`zipalign -P 16 4`），构建后校验一次；16KB 页大小的镜像已在
 模拟器上验证。
 
+## 1.1 生成证书
+
+没有现成证书时，用 Mio 自带的 keytool 生成（见[配置](/configuration#生成签名证书)）：
+
+```bash
+MIO_KS_PASS=<password> mio keystore --out .mio/release.p12 --alias release --dname "CN=Your Name"
+```
+
 ## 2. Windows
 
 ### 2.1 为什么需要 Authenticode

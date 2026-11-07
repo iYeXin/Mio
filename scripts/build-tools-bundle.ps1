@@ -61,7 +61,7 @@ tar -czf $toolsArchive -C "$stage/tools" .
 # jre: a trimmed runtime, ~30 MB on disk
 $jreDir = Join-Path $stage "jre"
 & $jlink --module-path (Join-Path $JdkHome "jmods") `
-  --add-modules java.base,java.logging --strip-debug --no-man-pages --no-header-files `
+  --add-modules java.base,java.logging,jdk.crypto.ec --strip-debug --no-man-pages --no-header-files `
   --compress=zip-6 --output $jreDir
 if ($LASTEXITCODE -ne 0) { throw "jlink failed" }
 

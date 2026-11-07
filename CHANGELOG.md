@@ -3,6 +3,12 @@
 本文件记录 Mio 的对外变更。版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)；
 `MIO_API_VERSION`（桥契约）与 CLI 版本分开演进，见 [docs/release.md](docs/release.md)。
 
+## 0.1.4 — 2026-11-07
+
+- 工具包里的 Java 运行时加入 `keytool`（`jdk.crypto.ec`），没有 JDK 也能生成证书；
+- 新增 `mio keystore`：用自带 keytool 生成 PKCS12 证书，密码只从环境变量读取
+  （`-storepass:env`），并打印可直接使用的 `android` 配置；
+- 脚手架 `.gitignore` 覆盖 `.mio/*.p12`。
 ## 0.1.3 — 2026-11-07
 
 - **Android 构建不再要求预装 Java / Android Studio**：缺少签名与对齐工具时按需下载，
