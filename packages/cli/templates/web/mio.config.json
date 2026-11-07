@@ -1,0 +1,20 @@
+{
+  "app": {
+    "id": "com.example.hello",
+    "name": "Hello Mio",
+    "version": "1.0.0",
+    "icon": "icon.png"
+  },
+  "window": {
+    "width": 1000,
+    "height": 720
+  },
+  "web": {
+    "outDir": "dist"
+  },
+  "android": {
+    "minSdk": 24,
+    "pageSize": 16,
+    "abi": "arm64"
+  }
+}

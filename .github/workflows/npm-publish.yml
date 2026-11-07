@@ -1,0 +1,67 @@
+name: Publish npm
+
+# Publishing uses npm Trusted Publishing (OIDC): the runner gets a short-lived
+# token from GitHub, so no NPM_TOKEN secret exists. Two one-time steps happen
+# outside this workflow:
+#   1. the first version of each package is published manually;
+#   2. each package is registered on npmjs.com with this repository/workflow as
+#      its trusted publisher.
+# After that, publishing a GitHub release ships the packages.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Pack without uploading"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    name: Publish packages
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # packageManager in package.json decides the pnpm version.
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      # Trusted publishing needs npm >= 11.5; Node 22 still ships npm 10.
+      - name: Upgrade npm
+        run: |
+          npm install --global npm@latest
+          npm --version
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm -r build
+
+      - name: Test
+        run: pnpm -r test
+
+      - name: Publish
+        shell: bash
+        run: |
+          set -euo pipefail
+          packages=("@iyexin/mio-android-tools" "@iyexin/mio-api" "@iyexin/mio-cli")
+          for package in "${packages[@]}"; do
+            echo "::group::publish $package"
+            if [ "${{ inputs.dry_run }}" = "true" ]; then
+              pnpm --filter "$package" pack --pack-destination /tmp
+            else
+              pnpm --filter "$package" publish --access public --provenance --no-git-checks
+            fi
+            echo "::endgroup::"
+          done

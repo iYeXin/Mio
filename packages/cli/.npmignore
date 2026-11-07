@@ -1,0 +1,7 @@
+# Local build artifacts and the (gitignored) prebuilt templates.
+templates/web/node_modules
+templates/web/dist
+templates/web/build
+templates/web/.mio
+templates/android
+templates/windows

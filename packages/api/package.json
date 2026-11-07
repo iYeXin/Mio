@@ -1,0 +1,48 @@
+{
+  "name": "@iyexin/mio-api",
+  "version": "0.1.0",
+  "private": false,
+  "type": "module",
+  "description": "Typed Mio bridge API for web applications",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./bootstrap": "./bootstrap.js",
+    "./bootstrap.js": "./bootstrap.js"
+  },
+  "files": [
+    "dist",
+    "bootstrap.js"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/iYeXin/Mio.git",
+    "directory": "packages/api"
+  },
+  "homepage": "https://github.com/iYeXin/Mio#readme",
+  "bugs": {
+    "url": "https://github.com/iYeXin/Mio/issues"
+  },
+  "keywords": [
+    "mio",
+    "flutter",
+    "webview",
+    "web-app",
+    "android",
+    "windows"
+  ],
+  "publishConfig": {
+    "access": "public"
+  }
+}

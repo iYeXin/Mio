@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Sidecar Check</title>
+    <style>
+      :root {
+        --paper: #fbfaf7;
+        --ink: #16150f;
+        --muted: #6f6b60;
+        --rule: #dcd8cd;
+        --pass: #1f6b3a;
+        --fail: #a3341f;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--paper);
+        color: var(--ink);
+        font: 13px/1.55 "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+        -webkit-font-smoothing: antialiased;
+      }
+      .sheet { max-width: 720px; margin: 0 auto; padding: 40px 32px 56px; }
+      .masthead {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        border-bottom: 1px solid var(--ink);
+        padding-bottom: 10px;
+      }
+      .wordmark { font: 600 13px/1 ui-monospace, "Cascadia Mono", monospace; letter-spacing: 0.22em; }
+      .meta { font: 11px/1 ui-monospace, "Cascadia Mono", monospace; color: var(--muted); letter-spacing: 0.04em; }
+      h1 { font-size: 30px; line-height: 1.15; font-weight: 400; margin: 26px 0 6px; letter-spacing: -0.01em; }
+      .lede { color: var(--muted); margin: 0 0 28px; max-width: 54ch; }
+      .cases { border-top: 1px solid var(--rule); }
+      .case {
+        display: grid;
+        grid-template-columns: 30px 1fr auto;
+        gap: 14px;
+        padding: 14px 0;
+        border-bottom: 1px solid var(--rule);
+        align-items: baseline;
+      }
+      .no { font: 11px/1.6 ui-monospace, "Cascadia Mono", monospace; color: var(--muted); }
+      .name { font-size: 14px; }
+      .detail {
+        display: block;
+        font: 11px/1.6 ui-monospace, "Cascadia Mono", monospace;
+        color: var(--muted);
+        white-space: pre-wrap;
+        word-break: break-word;
+        margin-top: 4px;
+      }
+      .status {
+        font: 600 11px/1 ui-monospace, "Cascadia Mono", monospace;
+        letter-spacing: 0.12em;
+        padding: 3px 0;
+      }
+      .status.pass { color: var(--pass); }
+      .status.fail { color: var(--fail); }
+      .status.wait { color: var(--muted); }
+      .colophon {
+        margin-top: 26px;
+        display: flex;
+        justify-content: space-between;
+        gap: 16px;
+        font: 11px/1.6 ui-monospace, "Cascadia Mono", monospace;
+        color: var(--muted);
+        border-top: 1px solid var(--ink);
+        padding-top: 10px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="sheet">
+      <div class="masthead">
+        <span class="wordmark">MIO / SIDECAR</span>
+        <span class="meta" id="platform">connecting…</span>
+      </div>
+
+      <h1>Process API check</h1>
+      <p class="lede">
+        Five checks against the bundled shell: spawn, stdin/stdout, kill, the
+        executable path policy, and cleanup on window close. Results are read
+        from the live bridge.
+      </p>
+
+      <div class="cases" id="cases"></div>
+
+      <div class="colophon">
+        <span id="roots">roots: ?</span>
+        <span id="stamp">—</span>
+      </div>
+    </div>
+
+    <script>
+      const cases = [
+        ["spawn + stdin/stdout + exit code", "runs sidecar/findstr.exe, writes to stdin, reads stdout"],
+        ["kill", "kills a sidecar that waits on stdin"],
+        ["path policy", "absolute system binary is refused"],
+        ["missing executable", "reports the directories it searched"],
+        ["shutdown cleanup", "left running on purpose; closing the window must end it"],
+      ];
+
+      const list = document.getElementById("cases");
+      let counter = 0;
+      const rows = cases.map(([name, hint]) => {
+        counter += 1;
+        const row = document.createElement("div");
+        row.className = "case";
+        row.innerHTML =
+          '<span class="no">' + String(counter).padStart(2, "0") + "</span>" +
+          '<span><span class="name"></span><span class="detail"></span></span>' +
+          '<span class="status wait">WAIT</span>';
+        row.querySelector(".name").textContent = name;
+        row.querySelector(".detail").textContent = hint;
+        list.appendChild(row);
+        return row;
+      });
+
+      function settle(index, ok, detail) {
+        const row = rows[index];
+        const status = row.querySelector(".status");
+        status.className = "status " + (ok ? "pass" : "fail");
+        status.textContent = ok ? "PASS" : "FAIL";
+        if (detail) row.querySelector(".detail").textContent = detail;
+      }
+
+      function settleOpen(index, detail) {
+        const row = rows[index];
+        const status = row.querySelector(".status");
+        status.className = "status wait";
+        status.textContent = "OPEN";
+        if (detail) row.querySelector(".detail").textContent = detail;
+      }
+
+      const b64 = {
+        encode(text) {
+          const bytes = new TextEncoder().encode(text);
+          let binary = "";
+          for (const byte of bytes) binary += String.fromCharCode(byte);
+          return btoa(binary);
+        },
+        decode(data) {
+          const binary = atob(data);
+          const bytes = new Uint8Array(binary.length);
+          for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+          return new TextDecoder().decode(bytes);
+        },
+      };
+
+      const stdout = new Map();
+      const exits = new Map();
+      const waiters = [];
+
+      function notify() {
+        for (const waiter of waiters.slice()) waiter();
+      }
+
+      async function waitFor(check, timeoutMs, label) {
+        const deadline = Date.now() + timeoutMs;
+        while (Date.now() < deadline) {
+          if (check()) return;
+          await new Promise((resolve) => {
+            waiters.push(resolve);
+            setTimeout(resolve, 50);
+          });
+        }
+        throw new Error("timed out waiting for " + label);
+      }
+
+      function exitFor(id) {
+        return new Promise((resolve, reject) => {
+          waitFor(() => exits.has(id), 10000, "exit of " + id).then(() => resolve(exits.get(id)), reject);
+        });
+      }
+
+      async function main() {
+        await window.Mio.ready;
+        const bridge = window.Mio;
+
+        await bridge.on("process.stdout", (event) => {
+          stdout.set(event.id, (stdout.get(event.id) ?? "") + b64.decode(event.data));
+          notify();
+        });
+        await bridge.on("process.exit", (event) => {
+          exits.set(event.id, event);
+          notify();
+        });
+
+        const info = await bridge.invoke("platform.info");
+        document.getElementById("platform").textContent =
+          info.platform + " · " + info.os + " · api " + bridge.apiVersion;
+        document.getElementById("stamp").textContent = new Date().toISOString().slice(0, 19) + "Z";
+
+        // 1 — spawn, write stdin, read stdout, exit code.
+        try {
+          const child = await bridge.invoke("process.spawn", {
+            path: "sidecar/findstr.exe",
+            args: ["pong"],
+            cwd: "sidecar",
+          });
+          await bridge.invoke("process.write", { id: child.id, data: b64.encode("hello\npong\n") });
+          await bridge.invoke("process.closeStdin", { id: child.id });
+          const exit = await exitFor(child.id);
+          await waitFor(() => (stdout.get(child.id) ?? "").includes("pong"), 5000, "stdout");
+          const text = (stdout.get(child.id) ?? "").trim();
+          settle(0, exit.code === 0 && text === "pong",
+            "id " + child.id + " · pid " + child.pid + " · stdout " + JSON.stringify(text) + " · exit " + exit.code);
+        } catch (error) {
+          settle(0, false, error.code + ": " + error.message);
+        }
+
+        // 2 — kill a process that never reads.
+        try {
+          const child = await bridge.invoke("process.spawn", {
+            path: "sidecar/findstr.exe",
+            args: ["never"],
+            cwd: "sidecar",
+          });
+          const kill = await bridge.invoke("process.kill", { id: child.id });
+          const exit = await exitFor(child.id);
+          const running = await bridge.invoke("process.list");
+          settle(1, kill.killed && running.length === 0,
+            "killed " + kill.killed + " · exit " + exit.code + " · running " + running.length);
+        } catch (error) {
+          settle(1, false, error.code + ": " + error.message);
+        }
+
+        // 3 — absolute path outside the allowed roots.
+        try {
+          await bridge.invoke("process.spawn", { path: "C:\\Windows\\System32\\cmd.exe", args: ["/c", "echo nope"] });
+          settle(2, false, "the shell started cmd.exe; the path policy did not apply");
+        } catch (error) {
+          settle(2, error.code === "PROCESS_FORBIDDEN", error.code + ": " + error.message);
+        }
+
+        // 4 — missing executable, surfaces the searched roots.
+        try {
+          await bridge.invoke("process.spawn", { path: "sidecar/missing.exe" });
+          settle(3, false, "a missing executable was started");
+        } catch (error) {
+          const roots = (error.data && error.data.roots) || [];
+          document.getElementById("roots").textContent = roots.join("  |  ");
+          settle(3, error.code === "PROCESS_NOT_FOUND", error.code + ": " + error.message);
+        }
+
+        // 5 — deliberately left running; closing the window must terminate it.
+        try {
+          const child = await bridge.invoke("process.spawn", {
+            path: "sidecar/findstr.exe",
+            args: ["never"],
+            cwd: "sidecar",
+          });
+          settleOpen(4, "pid " + child.pid + " · still running; close the window and re-check");
+        } catch (error) {
+          settle(4, false, error.code + ": " + error.message);
+        }
+      }
+
+      main().catch((error) => {
+        document.getElementById("platform").textContent = "bridge error";
+        settle(0, false, String(error));
+      });
+    </script>
+  </body>
+</html>

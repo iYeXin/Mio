@@ -1,0 +1,15 @@
+{
+  "app": {
+    "id": "com.example.sidecar",
+    "name": "Sidecar Check",
+    "version": "0.1.0"
+  },
+  "window": {
+    "width": 860,
+    "height": 620,
+    "title": "Sidecar Check"
+  },
+  "web": {
+    "outDir": "web"
+  }
+}

@@ -1,0 +1,4 @@
+# Build outputs; regenerate with ./build-native.ps1
+web/native/
+build/
+node_modules/

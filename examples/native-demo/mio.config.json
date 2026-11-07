@@ -1,0 +1,18 @@
+{
+  "app": {
+    "id": "com.example.nativedemo",
+    "name": "Native Demo",
+    "version": "0.1.0"
+  },
+  "window": {
+    "width": 760,
+    "height": 620,
+    "title": "Native Demo"
+  },
+  "web": {
+    "outDir": "web"
+  },
+  "android": {
+    "abi": "arm64"
+  }
+}

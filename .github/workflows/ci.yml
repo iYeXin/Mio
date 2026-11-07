@@ -1,0 +1,97 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  node:
+    name: Node packages
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Version comes from package.json's packageManager field; specifying it
+      # twice makes the action fail with ERR_PNPM_BAD_PM_VERSION.
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      # Build first: workspace packages expose types from dist/, so a clean
+      # checkout cannot typecheck the CLI before its dependencies are built.
+      - name: Build
+        run: pnpm -r build
+
+      - name: Typecheck
+        run: pnpm -r typecheck
+
+      - name: Test
+        shell: bash
+        run: |
+          set +e
+          pnpm -r test > node-test.log 2>&1
+          status=$?
+          tail -n 60 node-test.log
+          if [ $status -ne 0 ]; then
+            # Annotations are readable without auth, unlike job logs.
+            tail -n 45 node-test.log | while IFS= read -r line; do
+              echo "::error title=node-test::${line}"
+            done
+          fi
+          exit $status
+
+      # Versions, LICENSE, docs coverage, template policy. Fast checks only;
+      # the suites above are the same ones `-Full` would re-run.
+      - name: Release checks
+        shell: pwsh
+        run: ./scripts/verify-release.ps1
+
+  flutter:
+    name: Flutter shell
+    # Windows, not Linux: the dependency graph builds native assets
+    # (cnativeapi/dartjni) whose build hook needs the toolchain this shell
+    # actually targets. Running the suite on Linux fails inside that hook.
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: shell
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.8'
+          channel: stable
+          cache: true
+
+      - name: Pub get
+        run: flutter pub get
+
+      - name: Analyze
+        run: flutter analyze
+
+      - name: Test
+        shell: bash
+        run: |
+          set +e
+          flutter test --reporter expanded > flutter-test.log 2>&1
+          status=$?
+          tail -n 60 flutter-test.log
+          if [ $status -ne 0 ]; then
+            tail -n 12 flutter-test.log | while IFS= read -r line; do
+              echo "::error title=flutter-test::${line}"
+            done
+          fi
+          exit $status

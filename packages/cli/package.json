@@ -1,0 +1,55 @@
+{
+  "name": "@iyexin/mio-cli",
+  "version": "0.1.0",
+  "private": false,
+  "type": "module",
+  "description": "Mio application CLI",
+  "bin": {
+    "mio": "./dist/bin.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "templates/web"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --import tsx --test test/create.test.ts test/abi.test.ts test/download.test.ts"
+  },
+  "dependencies": {
+    "@electron/asar": "^4.3.1",
+    "@iyexin/mio-android-tools": "workspace:*",
+    "@iyexin/mio-api": "workspace:*",
+    "undici": "^7.16.0"
+  },
+  "engines": {
+    "node": ">=22.12"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/iYeXin/Mio.git",
+    "directory": "packages/cli"
+  },
+  "homepage": "https://github.com/iYeXin/Mio#readme",
+  "bugs": {
+    "url": "https://github.com/iYeXin/Mio/issues"
+  },
+  "keywords": [
+    "mio",
+    "flutter",
+    "webview",
+    "web-app",
+    "android",
+    "windows"
+  ],
+  "publishConfig": {
+    "access": "public"
+  }
+}

@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Hello Mio</title>
+    <link rel="stylesheet" href="./src/style.css" />
+  </head>
+  <body>
+    <div class="frame">
+      <header class="masthead">
+        <span class="wordmark">MIO</span>
+        <span class="masthead-meta" id="masthead-meta">shell 0.1.0</span>
+      </header>
+
+      <section class="intro">
+        <div class="intro-text">
+          <h1 id="app-name">Hello Mio</h1>
+          <p class="lede">
+            A Flutter shell serving a web app over localhost. Every call below crosses
+            the bridge into native code.
+          </p>
+        </div>
+        <svg class="mark" viewBox="1300 410 1659 1655" aria-hidden="true">
+          <rect x="1300" y="410" width="822" height="681" fill="#f2a6a6" />
+          <rect x="1300" y="1238" width="532" height="827" fill="#b9b9b6" />
+          <rect x="1972" y="1382" width="946" height="681" fill="#a9c0d2" />
+          <path
+            d="M2256.85 1237.84 2432.35 409.836 2958.85 409.836 2783.35 1237.84Z"
+            fill="#4a4a4a"
+          />
+        </svg>
+      </section>
+
+      <dl class="spec">
+        <div class="spec-cell">
+          <dt>Application</dt>
+          <dd id="spec-id" class="mono">—</dd>
+        </div>
+        <div class="spec-cell">
+          <dt>Version</dt>
+          <dd id="spec-version" class="mono">—</dd>
+        </div>
+        <div class="spec-cell">
+          <dt>Platform</dt>
+          <dd id="spec-platform" class="mono">—</dd>
+        </div>
+        <div class="spec-cell">
+          <dt>Bridge</dt>
+          <dd class="mono">
+            <span class="status" id="bridge-status" data-state="pending">
+              <span class="status-dot"></span><span id="bridge-text">connecting</span>
+            </span>
+          </dd>
+        </div>
+      </dl>
+
+      <section class="calls">
+        <h2 class="section-label">Bridge calls</h2>
+        <ol class="call-list">
+          <li>
+            <button type="button" data-action="ping">
+              <span class="num">01</span>
+              <span class="call-name">Ping</span>
+              <span class="call-note">round trip to the shell</span>
+              <span class="arrow" aria-hidden="true">→</span>
+            </button>
+          </li>
+          <li>
+            <button type="button" data-action="clipboard">
+              <span class="num">02</span>
+              <span class="call-name">Clipboard</span>
+              <span class="call-note">write then read back</span>
+              <span class="arrow" aria-hidden="true">→</span>
+            </button>
+          </li>
+          <li>
+            <button type="button" data-action="write">
+              <span class="num">03</span>
+              <span class="call-name">Write &amp; read a file</span>
+              <span class="call-note">app data directory</span>
+              <span class="arrow" aria-hidden="true">→</span>
+            </button>
+          </li>
+          <li>
+            <button type="button" data-action="binary">
+              <span class="num">04</span>
+              <span class="call-name">64 MB round trip</span>
+              <span class="call-note">streamed over the blob endpoint</span>
+              <span class="arrow" aria-hidden="true">→</span>
+            </button>
+          </li>
+        </ol>
+      </section>
+
+      <section class="log">
+        <div class="log-head">
+          <h2 class="section-label">Output</h2>
+          <span class="log-id" id="log-id">idle</span>
+        </div>
+        <pre id="output" aria-live="polite">Waiting for the bridge…</pre>
+      </section>
+
+      <footer class="colophon">
+        <span>Mio shell</span>
+        <span id="spec-api">api —</span>
+        <span id="spec-template">template —</span>
+      </footer>
+    </div>
+
+    <script type="module" src="./src/main.ts"></script>
+  </body>
+</html>

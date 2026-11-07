@@ -1,0 +1,16 @@
+# Binary artifacts: templates, icons and test captures must not be rewritten by
+# line-ending or diff normalization.
+*.apk binary
+*.exe binary
+*.dll binary
+*.so binary
+*.p12 binary
+*.pfx binary
+*.cer binary
+*.ico binary
+*.png binary
+
+# Text: keep LF on checkout so shell scripts and Markdown stay consistent.
+* text=auto eol=lf
+*.ps1 text eol=crlf
+*.bat text eol=crlf

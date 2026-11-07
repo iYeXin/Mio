@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Native demo</title>
+    <style>
+      :root {
+        --paper: #fbfaf7;
+        --ink: #16150f;
+        --muted: #6f6b60;
+        --rule: #dcd8cd;
+        --accent: #1f6b3a;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--paper);
+        color: var(--ink);
+        font: 14px/1.6 "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+        -webkit-font-smoothing: antialiased;
+      }
+      .sheet { max-width: 720px; margin: 0 auto; padding: 34px 28px 44px; }
+      .masthead {
+        display: flex; justify-content: space-between; align-items: baseline;
+        border-bottom: 1px solid var(--ink); padding-bottom: 10px;
+      }
+      .wordmark { font: 600 12px/1 ui-monospace, "Cascadia Mono", monospace; letter-spacing: 0.22em; }
+      .meta { font: 11px/1 ui-monospace, "Cascadia Mono", monospace; color: var(--muted); }
+      h1 { font-size: 27px; font-weight: 400; margin: 22px 0 4px; letter-spacing: -0.01em; }
+      .lede { color: var(--muted); margin: 0 0 20px; max-width: 56ch; }
+      .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 18px; }
+      button {
+        font: 12px/1 ui-monospace, "Cascadia Mono", monospace;
+        letter-spacing: 0.02em;
+        padding: 8px 12px;
+        border: 1px solid var(--ink);
+        background: transparent;
+        color: var(--ink);
+        cursor: pointer;
+      }
+      button:hover { background: var(--ink); color: var(--paper); }
+      .log {
+        border-top: 1px solid var(--rule);
+        font: 12px/1.7 ui-monospace, "Cascadia Mono", monospace;
+        white-space: pre-wrap;
+        word-break: break-word;
+        color: var(--muted);
+        padding-top: 12px;
+        min-height: 180px;
+      }
+      .log b { color: var(--accent); font-weight: 600; }
+      .log i { color: var(--ink); font-style: normal; }
+      .colophon {
+        margin-top: 20px; border-top: 1px solid var(--ink); padding-top: 8px;
+        font: 11px/1.6 ui-monospace, "Cascadia Mono", monospace; color: var(--muted);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="sheet">
+      <div class="masthead">
+        <span class="wordmark">MIO / NATIVE DEMO</span>
+        <span class="meta" id="platform">connecting…</span>
+      </div>
+
+      <h1>A library, called two ways</h1>
+      <p class="lede">
+        The library lives at <code>native/&lt;abi&gt;/demo.dll|so</code> inside the app
+        content. Call exported functions directly, or start its entry point and
+        listen for events.
+      </p>
+
+      <div class="actions">
+        <button id="add">demo_add(2, 3)</button>
+        <button id="scale">demo_scale(1.5, 2)</button>
+        <button id="length">demo_length("hello")</button>
+        <button id="start">mio_start + events</button>
+        <button id="emit">emit(42) → echo</button>
+        <button id="stop">mio_stop</button>
+      </div>
+
+      <div class="log" id="log"></div>
+      <div class="colophon" id="stamp">—</div>
+    </div>
+
+    <script>
+      const log = document.getElementById("log");
+      let library = null;
+      let counter = 0;
+
+      function line(html) {
+        counter += 1;
+        const row = document.createElement("div");
+        row.innerHTML = String(counter).padStart(2, "0") + "  " + html;
+        log.appendChild(row);
+        log.scrollTop = log.scrollHeight;
+      }
+
+      const native = {
+        load: (name) => window.Mio.invoke("native.load", { name }),
+        call: (handle, symbol, signature, args) =>
+          window.Mio.invoke("native.call", { handle, symbol, signature, args }),
+        start: (handle, config) => window.Mio.invoke("native.start", { handle, config }),
+        stop: (handle) => window.Mio.invoke("native.stop", { handle }),
+        emit: (handle, event, a, b, c) =>
+          window.Mio.invoke("native.emit", { handle, event, a, b, c }),
+      };
+
+      async function call(symbol, signature, args) {
+        try {
+          const value = await native.call(library.handle, symbol, signature, args);
+          line(`<b>${symbol}</b> ${signature} → <i>${value === null ? "null" : JSON.stringify(value)}</i>`);
+        } catch (error) {
+          line(`<b>${symbol}</b> failed: ${error.code} — ${error.message}`);
+        }
+      }
+
+      async function main() {
+        await window.Mio.ready;
+        const info = await window.Mio.invoke("platform.info");
+        document.getElementById("platform").textContent =
+          info.platform + " · " + info.os + " · api " + window.Mio.apiVersion;
+        document.getElementById("stamp").textContent = new Date().toISOString().slice(0, 19) + "Z";
+
+        try {
+          library = await native.load("demo");
+          line(`loaded <i>${library.name}</i> for <i>${library.abi}</i> · entry ${library.entry}`);
+        } catch (error) {
+          line(`load failed: ${error.code} — ${error.message}`);
+        }
+
+        document.getElementById("add").onclick = () => call("demo_add", "i32(i32,i32)", [2, 3]);
+        document.getElementById("scale").onclick = () => call("demo_scale", "f64(f64,f64)", [1.5, 2]);
+        document.getElementById("length").onclick = () => call("demo_length", "i32(str)", ["hello"]);
+
+        await window.Mio.on("native.event", (event) => {
+          if (event.handle !== library?.handle) return;
+          const tag = event.event === 1 ? "config" : event.event === 999 ? "done" : "progress";
+          line(`event <b>${tag}</b> a=${event.a} b=${event.b} c=${event.c}`);
+        });
+
+        document.getElementById("start").onclick = async () => {
+          try {
+            const started = await native.start(library.handle, '{"level":"info"}');
+            line(`mio_start → code <i>${started.code}</i> · running ${started.running}`);
+          } catch (error) {
+            line(`mio_start failed: ${error.code} — ${error.message}`);
+          }
+        };
+
+        document.getElementById("emit").onclick = async () => {
+          try {
+            await native.emit(library.handle, 42, 7, 8, 1.5);
+            line(`emit <b>42</b> a=7 b=8 c=1.5 → the library answers with event 43`);
+          } catch (error) {
+            line(`emit failed: ${error.code} — ${error.message}`);
+          }
+        };
+
+        document.getElementById("stop").onclick = async () => {
+          try {
+            const result = await native.stop(library.handle);
+            line(`mio_stop → stopped ${result.stopped}${result.reason ? " · " + result.reason : ""}`);
+          } catch (error) {
+            line(`mio_stop failed: ${error.code} — ${error.message}`);
+          }
+        };
+
+        // One call at startup so the log is never empty.
+        await call("demo_add", "i32(i32,i32)", [2, 3]);
+      }
+
+      main().catch((error) => line(String(error)));
+    </script>
+  </body>
+</html>

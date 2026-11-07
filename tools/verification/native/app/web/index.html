@@ -1,0 +1,273 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Native API check</title>
+    <style>
+      :root {
+        --paper: #fbfaf7;
+        --ink: #16150f;
+        --muted: #6f6b60;
+        --rule: #dcd8cd;
+        --pass: #1f6b3a;
+        --fail: #a3341f;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--paper);
+        color: var(--ink);
+        font: 13px/1.55 "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+        -webkit-font-smoothing: antialiased;
+        zoom: 0.9;
+      }
+      .sheet { max-width: 820px; margin: 0 auto; padding: 18px 22px 20px; }
+      .masthead {
+        display: flex; justify-content: space-between; align-items: baseline;
+        border-bottom: 1px solid var(--ink); padding-bottom: 9px;
+      }
+      .wordmark { font: 600 13px/1 ui-monospace, "Cascadia Mono", monospace; letter-spacing: 0.22em; }
+      .meta { font: 11px/1 ui-monospace, "Cascadia Mono", monospace; color: var(--muted); }
+      h1 { font-size: 21px; font-weight: 400; margin: 12px 0 4px; letter-spacing: -0.01em; }
+      .lede { color: var(--muted); margin: 0 0 10px; max-width: 58ch; }
+      .row {
+        display: grid; grid-template-columns: 24px 1fr auto; gap: 9px;
+        padding: 4px 0; border-bottom: 1px solid var(--rule); align-items: baseline;
+      }
+      .no { font: 11px/1.5 ui-monospace, "Cascadia Mono", monospace; color: var(--muted); }
+      .label { font-size: 13px; }
+      .detail {
+        display: block; font: 11px/1.5 ui-monospace, "Cascadia Mono", monospace;
+        color: var(--muted); margin-top: 1px; word-break: break-word; white-space: pre-wrap;
+      }
+      .status { font: 600 11px/1 ui-monospace, "Cascadia Mono", monospace; letter-spacing: 0.1em; }
+      .status.pass { color: var(--pass); }
+      .status.fail { color: var(--fail); }
+      .status.wait { color: var(--muted); }
+      .colophon {
+        margin-top: 16px; border-top: 1px solid var(--ink); padding-top: 8px;
+        font: 11px/1.6 ui-monospace, "Cascadia Mono", monospace; color: var(--muted);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="sheet">
+      <div class="masthead">
+        <span class="wordmark">MIO / NATIVE API</span>
+        <span class="meta" id="platform">connecting…</span>
+      </div>
+      <h1>Scalar calls and the event bridge</h1>
+      <p class="lede">
+        Loads a small library from the app archive, calls exported functions with
+        the supported scalar signatures, then starts its entry and collects the
+        events it raises.
+      </p>
+      <div id="rows"></div>
+      <div class="colophon" id="stamp">—</div>
+    </div>
+
+    <script>
+      let counter = 0;
+      const host = document.getElementById("rows");
+
+      function row(label, ok, detail) {
+        counter += 1;
+        const node = document.createElement("div");
+        node.className = "row";
+        node.innerHTML =
+          '<span class="no">' + String(counter).padStart(2, "0") + "</span>" +
+          '<span><span class="label"></span><span class="detail"></span></span>' +
+          '<span class="status ' + (ok === null ? "wait" : ok ? "pass" : "fail") + '">' +
+          (ok === null ? "WAIT" : ok ? "PASS" : "FAIL") + "</span>";
+        node.querySelector(".label").textContent = label;
+        if (detail) node.querySelector(".detail").textContent = detail;
+        host.appendChild(node);
+        return node;
+      }
+
+      function show(value) {
+        return value === null || value === undefined ? "null" : JSON.stringify(value);
+      }
+
+      // The page talks to the raw bridge; @iyexin/mio-api wraps exactly these methods.
+      const native = {
+        load: (name) => window.Mio.invoke("native.load", { name }),
+        start: (handle, config) => window.Mio.invoke("native.start", { handle, config }),
+        call: (handle, symbol, signature, args) =>
+          window.Mio.invoke("native.call", { handle, symbol, signature, args }),
+        emit: (handle, event, a, b, c) =>
+          window.Mio.invoke("native.emit", { handle, event, a, b, c }),
+        stop: (handle) => window.Mio.invoke("native.stop", { handle }),
+        list: () => window.Mio.invoke("native.list"),
+      };
+
+      async function call(handle, symbol, signature, args, expected) {
+        const label = symbol + " " + signature;
+        try {
+          const value = await native.call(handle, symbol, signature, args);
+          row(label, JSON.stringify(value) === JSON.stringify(expected), "expected " + show(expected) + " · got " + show(value));
+        } catch (error) {
+          row(label, false, error.code + ": " + error.message);
+        }
+      }
+
+      async function expectCode(label, action, code) {
+        try {
+          await action();
+          row(label, false, "expected " + code + " but the call succeeded");
+        } catch (error) {
+          row(label, error.code === code, error.code + ": " + error.message);
+        }
+      }
+
+      async function waitFor(predicate, timeoutMs, label) {
+        const deadline = Date.now() + timeoutMs;
+        while (Date.now() < deadline) {
+          if (predicate()) return;
+          await new Promise((resolve) => setTimeout(resolve, 40));
+        }
+        throw new Error("timed out waiting for " + label);
+      }
+
+      async function main() {
+        await window.Mio.ready;
+        const info = await window.Mio.invoke("platform.info");
+        document.getElementById("platform").textContent =
+          info.platform + " · " + info.os + " · api " + window.Mio.apiVersion;
+        document.getElementById("stamp").textContent = new Date().toISOString().slice(0, 19) + "Z";
+
+        const events = [];
+        await window.Mio.on("native.event", (event) => events.push(event));
+
+        const handle = await native.load("demo");
+        row("load demo", handle.entry === true,
+          "handle " + handle.handle + " · abi " + handle.abi + " · entry " + handle.entry);
+        window.__demoHandle = handle.handle;
+
+        await call(handle.handle, "mio_add", "i32(i32,i32)", [2, 3], 5);
+        await call(handle.handle, "mio_scale", "f64(f64,f64)", [1.5, 2], 3);
+        await call(handle.handle, "mio_length", "i32(str)", ["hello"], 5);
+        await call(handle.handle, "mio_tick", "i64(i64)", [41], 1041);
+        await call(handle.handle, "mio_mix", "i32(i32,f64)", [4, 2.9], 6);
+        await call(handle.handle, "mio_noop", "void()", [], null);
+
+        // A 400 ms call must not block the bridge: it runs on the library worker.
+        try {
+          const slow = native.call(handle.handle, "mio_sleep", "i32(i32)", [400]);
+          await new Promise((resolve) => setTimeout(resolve, 60));
+          const started = performance.now();
+          await window.Mio.invoke("ping");
+          const pingMs = performance.now() - started;
+          const slept = await slow;
+          row("worker isolation", pingMs < 120 && slept === 400,
+            "ping answered in " + pingMs.toFixed(0) + " ms while a 400 ms call ran · call returned " + slept);
+        } catch (error) {
+          row("worker isolation", false, error.code ? error.code + ": " + error.message : String(error));
+        }
+
+        await expectCode("unknown symbol", () => native.call(handle.handle, "mio_missing", "i32()"), "NATIVE_SYMBOL_NOT_FOUND");
+        await expectCode(
+          "unsupported signature",
+          () => native.call(handle.handle, "mio_add", "i32(i32,i32,i32,i32)", [1, 2, 3, 4]),
+          "NATIVE_BAD_SIGNATURE",
+        );
+
+        try {
+          const started = await native.start(handle.handle, '{"a":1}');
+          row("start(config)", started.code === 7 && started.running === false,
+            "code " + started.code + " · running " + started.running);
+        } catch (error) {
+          row("start(config)", false, error.code + ": " + error.message);
+        }
+
+        const pending = row("event sequence", null, "waiting for the final event…");
+        try {
+          await waitFor(() => events.some((event) => event.event === 999), 8000, "event 999");
+          const config = events.find((event) => event.event === 1);
+          const ticks = events.filter((event) => event.event === 100);
+          const ok =
+            events.length === 7 &&
+            config !== undefined &&
+            config.a === 7 &&
+            ticks.length === 5 &&
+            ticks.every((event, index) => event.a === index + 1 && event.b === (index + 1) * 10) &&
+            Math.abs(ticks[4].c - 2.5) < 1e-9;
+          pending.querySelector(".status").className = "status " + (ok ? "pass" : "fail");
+          pending.querySelector(".status").textContent = ok ? "PASS" : "FAIL";
+          pending.querySelector(".detail").textContent =
+            "count " + events.length + " · config " + (config ? config.a : "missing") +
+            " · ticks " + ticks.map((event) => event.a + "/" + event.c).join(" ");
+        } catch (error) {
+          pending.querySelector(".status").className = "status fail";
+          pending.querySelector(".status").textContent = "FAIL";
+          pending.querySelector(".detail").textContent =
+            String(error) + " · seen " + events.map((event) => event.event).join(",");
+        }
+
+        try {
+          const info = await window.Mio.invoke("app.info");
+          row("app.info features",
+            info.dev === false && info.features.native === true,
+            "dev " + info.dev + " · " + JSON.stringify(info.features));
+        } catch (error) {
+          row("app.info features", false, String(error));
+        }
+
+        try {
+          await native.emit(handle.handle, 42, 7, 8, 1.5);
+          await waitFor(() => events.some((event) => event.event === 43), 5000, "echo event");
+          const echo = events.find((event) => event.event === 43);
+          row("emit → mio_event",
+            echo.a === 7 && echo.b === 8 && Math.abs(echo.c - 1.5) < 1e-9,
+            "event 43 · a=" + echo.a + " b=" + echo.b + " c=" + echo.c);
+        } catch (error) {
+          row("emit → mio_event", false, error.code ? error.code + ": " + error.message : String(error));
+        }
+
+        try {
+          row("platform.info abi", /^(arm64|x64|arm|x86)$/.test(info.abi),
+            info.platform + " · abi " + info.abi + " · " + info.processors + " cores");
+        } catch (error) {
+          row("platform.info abi", false, String(error));
+        }
+
+        try {
+          const paths = await window.Mio.invoke("app.paths");
+          const ok = ["data", "app", "native", "install", "temp"].every((key) => typeof paths[key] === "string" && paths[key].length > 0) &&
+            paths.app.startsWith(paths.data);
+          row("app.paths", ok,
+            "data …" + paths.data.slice(-20) + " · app …" + paths.app.slice(-8) +
+            " · native/temp/install ok");
+        } catch (error) {
+          row("app.paths", false, String(error));
+        }
+
+        try {
+          const logged = await window.Mio.invoke("app.log", { level: "info", message: "hello from the page" });
+          await window.Mio.invoke("fs.remove", { path: "logs/notes.txt" });
+          await window.Mio.invoke("fs.appendText", { path: "logs/notes.txt", text: "line1\n" });
+          await window.Mio.invoke("fs.appendText", { path: "logs/notes.txt", text: "line2\n" });
+          const text = await window.Mio.invoke("fs.readText", { path: "logs/notes.txt" });
+          const logText = await window.Mio.invoke("fs.readText", { path: logged.path });
+          row("app.log + fs.appendText",
+            text === "line1\nline2\n" && logText.includes("hello from the page"),
+            "log " + logged.path + " · notes " + JSON.stringify(text));
+        } catch (error) {
+          row("app.log + fs.appendText", false, error.code ? error.code + ": " + error.message : String(error));
+        }
+
+        try {
+          const stopped = await native.stop(handle.handle);
+          await waitFor(() => events.some((event) => event.event === 77), 5000, "stop event");
+          row("native.stop", stopped.stopped === true,
+            "stopped " + stopped.stopped + " · event 77 received" + (stopped.reason ? " · " + stopped.reason : ""));
+        } catch (error) {
+          row("native.stop", false, error.code ? error.code + ": " + error.message : String(error));
+        }
+      }
+
+      main().catch((error) => row("harness", false, String(error)));
+    </script>
+  </body>
+</html>

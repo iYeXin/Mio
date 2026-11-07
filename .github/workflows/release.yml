@@ -1,0 +1,126 @@
+name: Release
+
+# Building templates is the slow part, so this runs on a version tag (or by hand).
+#   git tag -a v0.1.0 -m "Mio 0.1.0" && git push --follow-tags
+#
+# Assets produced (same names the CLI downloads):
+#   manifest.json, mio-shell-universal.apk, mio-shell-arm64.apk, mio-shell-x64.apk,
+#   mio-windows.zip
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  android:
+    name: Build Android templates
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: shell
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.47.8"
+          channel: stable
+          cache: true
+
+      - run: flutter pub get
+
+      - name: Build universal
+        run: |
+          flutter build apk --release -t lib/main_android.dart \
+            --target-platform android-arm,android-arm64,android-x64
+          cp build/app/outputs/flutter-apk/app-release.apk ../mio-shell-universal.apk
+
+      - name: Build arm64
+        run: |
+          flutter build apk --release -t lib/main_android.dart --target-platform android-arm64
+          cp build/app/outputs/flutter-apk/app-release.apk ../mio-shell-arm64.apk
+
+      - name: Build x64
+        run: |
+          flutter build apk --release -t lib/main_android.dart --target-platform android-x64
+          cp build/app/outputs/flutter-apk/app-release.apk ../mio-shell-x64.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-templates
+          path: mio-shell-*.apk
+          if-no-files-found: error
+
+  windows:
+    name: Build Windows template
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: shell
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.47.8"
+          channel: stable
+          cache: true
+
+      - run: flutter pub get
+
+      - name: Build
+        run: flutter build windows --release -t lib/main_windows.dart
+
+      - name: Package
+        shell: pwsh
+        run: |
+          $source = "build/windows/x64/runner/Release"
+          $target = "../mio-windows.zip"
+          # The archive root must be the template directory itself: the CLI
+          # extracts it into the cache and expects data/ to appear at the top.
+          Compress-Archive -Path "$source\*" -DestinationPath $target -Force
+          Get-Item $target | Select-Object Name, Length
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-template
+          path: mio-windows.zip
+          if-no-files-found: error
+
+  publish:
+    name: Publish release
+    needs: [android, windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: "*-template*"
+          merge-multiple: true
+
+      - name: Write manifest
+        run: node scripts/write-template-manifest.mjs
+
+      - name: Show assets
+        run: ls -lh *.apk *.zip manifest.json
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Mio ${{ github.ref_name }}
+          files: |
+            manifest.json
+            mio-shell-universal.apk
+            mio-shell-arm64.apk
+            mio-shell-x64.apk
+            mio-windows.zip
+          fail_on_unmatched_files: true

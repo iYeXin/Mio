@@ -1,0 +1,58 @@
+{
+  "name": "@iyexin/mio-android-tools",
+  "version": "0.1.0",
+  "private": false,
+  "type": "module",
+  "description": "Android APK alignment, signing and verification for Mio",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json",
+    "test": "node --import tsx --test test/apksigner.test.ts test/discovery.test.ts test/signing.test.ts test/tool-bundle.test.ts"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "png-to-ico": "^3.0.2",
+    "resedit": "^3.1.0",
+    "sharp": "^0.35.5",
+    "tar": "^7.5.22",
+    "undici": "^8.12.4",
+    "yauzl": "^3.4.0",
+    "yazl": "^3.3.1"
+  },
+  "devDependencies": {
+    "@types/yauzl": "^3.4.0",
+    "@types/yazl": "^3.3.1"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/iYeXin/Mio.git",
+    "directory": "packages/android-tools"
+  },
+  "homepage": "https://github.com/iYeXin/Mio#readme",
+  "bugs": {
+    "url": "https://github.com/iYeXin/Mio/issues"
+  },
+  "keywords": [
+    "mio",
+    "flutter",
+    "webview",
+    "web-app",
+    "android",
+    "windows"
+  ],
+  "publishConfig": {
+    "access": "public"
+  }
+}

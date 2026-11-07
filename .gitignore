@@ -1,0 +1,18 @@
+node_modules/
+dist/
+build/
+*.tsbuildinfo
+.mio/
+artifacts/
+coverage/
+*.log
+.DS_Store
+
+tools/verification/**/web/native/
+
+# Prebuilt templates are release assets, not source.
+packages/cli/templates/android/*.apk
+packages/cli/templates/windows/
+
+# Working notes stay local (research, decisions, acceptance logs).
+docs/local/
