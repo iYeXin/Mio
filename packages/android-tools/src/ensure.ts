@@ -17,6 +17,7 @@ export interface EnsureAndroidToolsOptions {
   manifest: ToolBundleManifest | string;
   /** Defaults to ~/.mio/tools/android. */
   cacheDir?: string;
+  /** Proxy for the tool bundle download; defaults to the standard env vars. */
   proxy?: string;
   /** Re-download every requested component even when cached. */
   force?: boolean;

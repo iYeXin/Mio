@@ -1,6 +1,6 @@
 {
   "name": "@iyexin/mio-cli",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "private": false,
   "type": "module",
   "description": "Mio application CLI",

@@ -14,6 +14,7 @@ import { resolveAndroidTemplate } from "./templates.js";
 import { ensureWebBuild } from "./web.js";
 import { safeName } from "./project.js";
 import { MIO_CLI_VERSION, MIO_RELEASE_BASE } from "./constants.js";
+import { resolveProxy } from "./download.js";
 
 export interface BuildAndroidOptions {
   loaded: LoadedConfig;
@@ -43,6 +44,7 @@ export async function buildAndroid(options: BuildAndroidOptions): Promise<BuildA
     allowDownload: process.env.MIO_NO_TOOL_DOWNLOAD !== "1",
     force: process.env.MIO_TOOLS_FORCE_DOWNLOAD === "1",
     cacheDir: process.env.MIO_TOOLS_CACHE_DIR,
+    proxy: resolveProxy(),
     log: (message) => console.error(`[tools] ${message}`),
   });
   const tools = resolved.tools;

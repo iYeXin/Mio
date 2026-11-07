@@ -3,6 +3,11 @@
 本文件记录 Mio 的对外变更。版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)；
 `MIO_API_VERSION`（桥契约）与 CLI 版本分开演进，见 [docs/release.md](docs/release.md)。
 
+## 0.1.5 — 2026-11-07
+
+- 工具包下载也遵循 `git config http.proxy`（与模板下载一致），没有代理环境变量时
+  仍可拉取工具；
+- `mio keystore` 支持用 `MIO_TOOLS_FORCE_DOWNLOAD=1` 刷新工具缓存。
 ## 0.1.4 — 2026-11-07
 
 - 工具包里的 Java 运行时加入 `keytool`（`jdk.crypto.ec`），没有 JDK 也能生成证书；

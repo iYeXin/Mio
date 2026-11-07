@@ -2,6 +2,7 @@ import { resolve } from "node:path";
 import { ensureAndroidTools, generateKeystore } from "@iyexin/mio-android-tools";
 import { MIO_CLI_VERSION, MIO_RELEASE_BASE } from "./constants.js";
 import type { LoadedConfig } from "./config.js";
+import { resolveProxy } from "./download.js";
 
 export interface KeystoreCommandOptions {
   loaded: LoadedConfig;
@@ -35,6 +36,8 @@ export async function keystoreCommand(options: KeystoreCommandOptions): Promise<
       `${MIO_RELEASE_BASE}/v${MIO_CLI_VERSION}/mio-tools.json`,
     allowDownload: process.env.MIO_NO_TOOL_DOWNLOAD !== "1",
     cacheDir: process.env.MIO_TOOLS_CACHE_DIR,
+    proxy: resolveProxy(),
+    force: process.env.MIO_TOOLS_FORCE_DOWNLOAD === "1",
     log: (message) => console.error(`[tools] ${message}`),
   });
 
