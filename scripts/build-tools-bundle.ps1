@@ -53,6 +53,8 @@ if (-not (Test-Path $jar) -or -not (Test-Path $align)) {
 }
 Copy-Item $jar "$stage/tools/apksigner.jar"
 Copy-Item $align "$stage/tools/$(Split-Path -Leaf $align)"
+$lib64 = Join-Path (Split-Path -Parent $align) "lib64"
+if (Test-Path $lib64) { Copy-Item $lib64 "$stage/tools/lib64" -Recurse }
 
 $toolsArchive = Join-Path $outDir "mio-tools-$PlatformKey-tools.tar.gz"
 Remove-Item $toolsArchive -Force -ErrorAction SilentlyContinue

@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { access, mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { constants } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
@@ -309,10 +309,13 @@ export async function installToolBundle(
     await extractComponent(source, proxy, target);
 
     if (component === "tools") {
-      // Move the flat tools archive into the bundle root.
-      for (const name of ["apksigner.jar", "zipalign", "zipalign.exe"]) {
+      // Move everything (binary, jar, lib64/) into the bundle root so the
+      // zipalign binary keeps its shared libraries next to it.
+      for (const name of await readdir(target)) {
         const from = join(target, name);
-        if (await exists(from)) await rename(from, join(dest, name));
+        const to = join(dest, name);
+        await rm(to, { recursive: true, force: true });
+        await rename(from, to);
       }
       await rm(target, { recursive: true, force: true });
     }

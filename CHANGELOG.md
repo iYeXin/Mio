@@ -3,6 +3,15 @@
 本文件记录 Mio 的对外变更。版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)；
 `MIO_API_VERSION`（桥契约）与 CLI 版本分开演进，见 [docs/release.md](docs/release.md)。
 
+## 0.1.7 — 2026-11-07
+
+- 修复内置 `zipalign` 缺少共享库的问题：工具包现在带上 `lib64/`（`libc++.so` 等），
+  运行时通过 `LD_LIBRARY_PATH` / `DYLD_LIBRARY_PATH` 指向它；
+- linux-arm64 的工具包同时打包了发行版 `zipalign` 依赖的 `libziparchive` / `libutils` /
+  `liblog` / `libzopfli`；
+- `zipalign` 失败时的错误信息会带上第一行 stderr（例如缺库的 loader 报错），不再只有
+  “zipalign failed”；
+- 安装工具包时保留 `lib64/` 目录（之前只移动三个文件，会丢掉依赖）。
 ## 0.1.6 — 2026-11-07
 
 来自早期体验反馈的一组修复：

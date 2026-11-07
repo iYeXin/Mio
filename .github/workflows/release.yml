@@ -137,6 +137,7 @@ jobs:
           set -euo pipefail
           PLATFORM="${{ matrix.platform }}"
           SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+          EXTRA_LIBS=""
           if [ -n "$SDK" ] && [ -d "$SDK/build-tools" ]; then
             BT="$(ls "$SDK/build-tools" | sort -V | tail -n1)"
             BT_DIR="$SDK/build-tools/$BT"
@@ -144,19 +145,40 @@ jobs:
             ALIGN="$BT_DIR/zipalign"
             [ -f "$ALIGN" ] || ALIGN="$BT_DIR/zipalign.exe"
           else
-            # arm64 Linux runners have no x86_64 Android SDK: the distro ships
-            # an arm64 zipalign, and apksigner.jar is platform independent.
+            # arm64 Linux runners have no x86_64 Android SDK. The distro
+            # zipalign links against libziparchive/libutils/liblog/libzopfli,
+            # so those libraries must travel with the binary.
             sudo apt-get update -qq
-            sudo apt-get install -y -qq zipalign unzip curl
+            sudo apt-get install -y -qq zipalign curl
+            ALIGN="$(command -v zipalign)"
+            EXTRA_LIBS="$(ldd "$ALIGN" | awk '{print $3}' | grep -E '^/' || true)"
             curl -sSL -o /tmp/build-tools.zip \
               https://dl.google.com/android/repository/build-tools_r36_linux.zip
-            unzip -q /tmp/build-tools.zip -d /tmp/build-tools
+            mkdir -p /tmp/build-tools
+            (command -v unzip >/dev/null && unzip -q -o /tmp/build-tools.zip -d /tmp/build-tools) || \
+              (sudo apt-get install -y -qq unzip && unzip -q -o /tmp/build-tools.zip -d /tmp/build-tools)
             JAR="$(find /tmp/build-tools -name apksigner.jar | head -n1)"
-            ALIGN="$(command -v zipalign)"
           fi
+
           rm -rf staging && mkdir -p staging/tools
           cp "$JAR" staging/tools/apksigner.jar
           cp "$ALIGN" staging/tools/
+          mkdir -p staging/tools/lib64
+
+          # Libraries that live next to the SDK binary.
+          if [ -d "$(dirname "$ALIGN")/lib64" ]; then
+            cp -R "$(dirname "$ALIGN")/lib64/." staging/tools/lib64/
+          fi
+
+          # Libraries resolved from the distro (arm64 path), minus libc/libm and
+          # the loader itself.
+          for lib in $EXTRA_LIBS; do
+            case "$lib" in
+              */libc.so.6|*/libm.so.6|*/libdl.so.2|*/libpthread.so.0|*/librt.so.1|*/libgcc_s.so.1|*/ld-linux*) continue ;;
+            esac
+            cp -L "$lib" staging/tools/lib64/
+          done
+
           tar -czf "mio-tools-$PLATFORM-tools.tar.gz" -C staging/tools .
           "$JAVA_HOME/bin/jlink" --module-path "$JAVA_HOME/jmods" \
             --add-modules java.base,java.logging,jdk.crypto.ec --strip-debug --no-man-pages \
@@ -167,7 +189,6 @@ jobs:
             --jre "mio-tools-$PLATFORM-jre.tar.gz" \
             --out "manifest-$PLATFORM.json"
           ls -lh mio-tools-*.tar.gz manifest-*.json
-
       - uses: actions/upload-artifact@v4
         with:
           name: tools-${{ matrix.platform }}
