@@ -67,6 +67,19 @@ export interface AppPaths {
   install: string;
   /** System temp directory. */
   temp: string;
+
+  // Well-known user folders. Present only where the platform has them; they are
+  // outside the sandbox, so `fs.*` still refuses to touch them.
+  /** Windows: the user profile directory. */
+  home?: string;
+  desktop?: string;
+  documents?: string;
+  downloads?: string;
+  pictures?: string;
+  music?: string;
+  videos?: string;
+  /** Android: the app-specific external files directory. */
+  external?: string;
 }
 
 export interface AppLogResult {

@@ -145,13 +145,16 @@ class MioApi with WidgetsBindingObserver {
         await _quit();
         return null;
       case 'app.paths':
-        return {
+        return <String, Object?>{
           // Everything the app owns. `app` is the only writable sandbox.
           'data': dataDir.path,
           'app': _fsRoot.path,
           'native': p.join(dataDir.path, 'native'),
           'install': p.dirname(Platform.resolvedExecutable),
           'temp': Directory.systemTemp.path,
+          // Well-known user folders. Null where the platform has no equivalent;
+          // these are outside the sandbox, so fs.* still refuses them.
+          ..._userPaths(),
         };
       case 'platform.keepAwake':
         if (!platformActions.supportsKeepAwake) {
@@ -607,6 +610,38 @@ class MioApi with WidgetsBindingObserver {
     final path = _resolvePath(_requiredString(params, 'path'));
     return await FileSystemEntity.type(path, followLinks: false) !=
         FileSystemEntityType.notFound;
+  }
+
+  /// Common user directories; `null` means the platform has no such folder.
+  Map<String, Object?> _userPaths() {
+    if (platformName == 'windows') {
+      final home = Platform.environment['USERPROFILE'];
+      if (home == null || home.isEmpty) {
+        return const <String, Object?>{};
+      }
+      String folder(String name) => p.join(home, name);
+      return <String, Object?>{
+        'home': home,
+        'desktop': folder('Desktop'),
+        'documents': folder('Documents'),
+        'downloads': folder('Downloads'),
+        'pictures': folder('Pictures'),
+        'music': folder('Music'),
+        'videos': folder('Videos'),
+      };
+    }
+    if (platformName == 'android') {
+      // Android has no user home; expose the app's external directory instead.
+      final external = _androidExternalDir;
+      return <String, Object?>{'external': external};
+    }
+    return const <String, Object?>{};
+  }
+
+  String? get _androidExternalDir {
+    final base = Platform.environment['EXTERNAL_STORAGE'];
+    if (base == null || base.isEmpty) return null;
+    return p.join(base, 'Android', 'data', manifest.id, 'files');
   }
 
   String _entityTypeName(FileSystemEntityType type) {

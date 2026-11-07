@@ -12,7 +12,7 @@
 - 新增 `platform.orientation(mode)`：Android 锁定 `auto` / `portrait` / `landscape`；
 - `mio create` 不再自动执行 `npm install`，只输出后续命令。
 
-## 未发布
+## 0.1.2 — 2026-11-07
 
 - `mio create` 不再自动执行 `npm install`：装依赖由用户决定，输出里只给出下一步命令；
 - 新 API：

@@ -38,7 +38,7 @@ const unsubscribe = await Mio.on("app.lifecycle", (event) => {
 | 方法 | 返回 |
 |---|---|
 | `app.info()` | `{ id, name, version, title, platform, apiVersion, templateVersion, dev, startedAt, uptimeMs, features }` |
-| `app.paths()` | `{ data, app, native, install, temp }` |
+| `app.paths()` | `{ data, app, native, install, temp }`，Windows 上另有 `home` / `desktop` / `documents` / `downloads` / `pictures` / `music` / `videos`，Android 上是 `external`（应用专属外部目录） |
 | `app.log(level, message)` | 追加到 `logs/mio.log`（约 1 MB 轮转），返回 `{ path }` |
 | `app.quit()` | `void` |
 
