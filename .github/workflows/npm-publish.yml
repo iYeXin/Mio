@@ -63,19 +63,37 @@ jobs:
       - name: Publish
         shell: bash
         run: |
-          set -euo pipefail
-          packages=("@iyexin/mio-android-tools" "@iyexin/mio-api" "@iyexin/mio-cli")
-          for package in "${packages[@]}"; do
-            echo "::group::publish $package"
+          set -uo pipefail
+
+          # Publish dependencies first. pnpm rewrites workspace:* to real
+          # versions; npm publishes the tarball so provenance comes from npm.
+          packages=("packages/android-tools" "packages/api" "packages/cli")
+          for dir in "${packages[@]}"; do
+            name="$(node -p "require('./$dir/package.json').name")"
+            version="$(node -p "require('./$dir/package.json').version")"
+            echo "::group::$name@$version"
+
+            if npm view "$name@$version" version >/dev/null 2>&1; then
+              echo "$name@$version is already on the registry, skipping"
+              echo "::endgroup::"
+              continue
+            fi
+
             rm -rf /tmp/pack && mkdir -p /tmp/pack
-            # pnpm rewrites workspace:* to real versions; npm publishes the
-            # tarball so provenance is produced by npm itself.
-            pnpm --filter "$package" pack --pack-destination /tmp/pack
+            pnpm --filter "$name" pack --pack-destination /tmp/pack
             tarball="$(ls /tmp/pack/*.tgz)"
+
             if [ "${{ inputs.dry_run }}" = "true" ]; then
               echo "dry run: $tarball"
             else
-              npm publish "$tarball" --access public --provenance
+              output="$(npm publish "$tarball" --access public --provenance 2>&1)"
+              status=$?
+              echo "$output"
+              if [ $status -ne 0 ]; then
+                # Job logs need authentication; annotations do not.
+                echo "::error title=publish $name@$version::$(echo "$output" | tail -n 5 | tr '\n' ' ')"
+                exit $status
+              fi
             fi
             echo "::endgroup::"
           done
