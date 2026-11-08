@@ -102,6 +102,8 @@
         ["fs grants", "an absolute path without a dialog grant is refused"],
         ["window.fitToWorkArea", "sizes the window into the usable desktop area"],
         ["platform.setSystemBars", "colors the Android status bar"],
+        ["storage.request", "asks for gallery read permission"],
+        ["media.saveImage", "writes a generated PNG into Pictures/Mio"],
       ];
 
       const list = document.getElementById("cases");
@@ -403,6 +405,38 @@
             settle(17, true, "status bar tinted");
           } catch (error) {
             settle(17, false, String(error.message || error));
+          }
+        }
+
+        if (!features.storage) {
+          settleState(18, "SKIP", "Android only", "wait");
+          settleState(19, "SKIP", "Android only", "wait");
+        } else {
+          try {
+            const status = await window.Mio.invoke("storage.status");
+            const granted = await window.Mio.invoke("storage.request", { type: "images" });
+            settle(18, typeof granted.granted === "boolean",
+              "granted=" + granted.granted + " scoped=" + status.scoped);
+          } catch (error) {
+            settle(18, false, String(error.message || error));
+          }
+
+          try {
+            const canvas = document.createElement("canvas");
+            canvas.width = 64;
+            canvas.height = 64;
+            const context = canvas.getContext("2d");
+            context.fillStyle = "#a3341f";
+            context.fillRect(0, 0, 64, 64);
+            context.fillStyle = "#fbfaf7";
+            context.fillRect(16, 16, 32, 32);
+            const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
+            const bytes = new Uint8Array(await blob.arrayBuffer());
+            await window.Mio.writeBlob("checks/save.png", bytes);
+            const saved = await window.Mio.invoke("media.saveImage", { path: "checks/save.png", album: "Mio" });
+            settle(19, Boolean(saved && saved.uri), saved.name + " · " + saved.album);
+          } catch (error) {
+            settle(19, false, String(error.message || error));
           }
         }
 

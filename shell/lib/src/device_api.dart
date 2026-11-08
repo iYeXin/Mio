@@ -37,6 +37,12 @@ class MioDeviceApi {
       case 'media.pickImages':
         final max = params['max'];
         return await _pickImages(max: max is int && max > 1 ? max : 0);
+      case 'media.saveImage':
+        return await _saveImage(params);
+      case 'storage.status':
+        return await _storageStatus();
+      case 'storage.request':
+        return await _storageRequest(params);
       case 'notify.progress':
         return await _notifyProgress(params);
       case 'notify.cancel':
@@ -130,6 +136,61 @@ class MioDeviceApi {
       return <String, Object?>{'cancelled': true};
     } on PlatformException catch (error) {
       throw MioApiException('NOTIFY_FAILED', error.message ?? 'cancel failed');
+    }
+  }
+
+  /// Copy a sandbox image into the system gallery (Android).
+  Future<Object?> _saveImage(Map<String, dynamic> params) async {
+    if (platformName != 'android') {
+      throw MioApiException('UNSUPPORTED', 'media.saveImage is Android only');
+    }
+    final path = params['path'];
+    if (path is! String || path.isEmpty) {
+      throw MioApiException('BAD_REQUEST', 'media.saveImage needs a path');
+    }
+    final absolute = p.isAbsolute(path)
+        ? path
+        : p.normalize(p.join(dataDir.path, 'app', path));
+    final album = params['album'];
+    try {
+      final result = await _channel.invokeMapMethod<String, Object?>(
+        'media.saveImage',
+        {
+          'path': absolute,
+          'album': album is String && album.isNotEmpty ? album : 'Mio',
+        },
+      );
+      return result;
+    } on PlatformException catch (error) {
+      throw MioApiException(
+        error.code == 'storage_denied' ? 'STORAGE_DENIED' : 'SAVE_FAILED',
+        error.message ?? 'media.saveImage failed',
+      );
+    }
+  }
+
+  Future<Object?> _storageStatus() async {
+    if (platformName != 'android') {
+      throw MioApiException('UNSUPPORTED', 'storage.status is Android only');
+    }
+    try {
+      return await _channel.invokeMapMethod<String, Object?>('storage.status');
+    } on PlatformException catch (error) {
+      throw MioApiException('STORAGE_ERROR', error.message ?? 'storage.status failed');
+    }
+  }
+
+  Future<Object?> _storageRequest(Map<String, dynamic> params) async {
+    if (platformName != 'android') {
+      throw MioApiException('UNSUPPORTED', 'storage.request is Android only');
+    }
+    final type = params['type'];
+    try {
+      return await _channel.invokeMapMethod<String, Object?>('storage.request', {
+        'type': type is String && type.isNotEmpty ? type : 'images',
+      });
+    } on PlatformException catch (error) {
+      throw MioApiException('STORAGE_ERROR', error.message ?? 'storage.request failed');
     }
   }
 

@@ -3,6 +3,16 @@
 本文件记录 Mio 的对外变更。版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)；
 `MIO_API_VERSION`（桥契约）与 CLI 版本分开演进，见 [docs/release.md](docs/release.md)。
 
+## 0.1.8 — 2026-11-08
+
+- **Android 返回键不再一次退出**：壳先询问页面（`app.backPressed` + `app.consumeBack`），
+  再走 WebView 历史；到入口页后要连按两次（2 秒内）才退出。Android 15+ 走
+  `OnBackInvokedDispatcher`，不再依赖已废弃的 `onBackPressed`；
+- **相册保存**：新增 `media.saveImage({ path, album? })`，用 MediaStore 写入
+  `Pictures/<album>`，Android 10+ 不需要存储权限；
+- **存储权限**：新增 `storage.status()` / `storage.request()`（Android 13+ 用
+  `READ_MEDIA_*`，旧系统用 `READ/WRITE_EXTERNAL_STORAGE`），`features.storage` 可探测；
+- harness 增加 `storage.request`、`media.saveImage`、返回键验证。
 ## 0.1.7 — 2026-11-07
 
 - 修复内置 `zipalign` 缺少共享库的问题：工具包现在带上 `lib64/`（`libc++.so` 等），

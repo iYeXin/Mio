@@ -4,15 +4,19 @@ import android.Manifest
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.content.ContentValues
 import android.content.Intent
 import android.graphics.Color
 import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
+import android.media.MediaScannerConnection
 import android.net.Uri
+import android.os.Environment
 import android.os.Build
 import android.provider.MediaStore
 import android.provider.OpenableColumns
 import android.util.Base64
+import android.window.OnBackInvokedDispatcher
 import android.view.View
 import android.view.WindowManager
 import io.flutter.embedding.android.FlutterActivity
@@ -25,20 +29,30 @@ import java.util.concurrent.Executors
 
 class MainActivity : FlutterActivity() {
     private val executor = Executors.newSingleThreadExecutor()
+    private lateinit var channel: MethodChannel
 
     private var pendingPick: MethodChannel.Result? = null
     private var pendingPickDestination: String? = null
     private var pendingPickMultiple: Boolean = false
 
     private var pendingNotification: Triple<String, String, Int>? = null
+    private var pendingStorage: MethodChannel.Result? = null
+    private var pendingStorageType: String = "images"
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
 
-        MethodChannel(
+        channel = MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
             "mio/runtime",
-        ).setMethodCallHandler { call, result ->
+        )
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            onBackInvokedDispatcher.registerOnBackInvokedCallback(
+                OnBackInvokedDispatcher.PRIORITY_DEFAULT,
+            ) { handleBack() }
+        }
+
+        channel.setMethodCallHandler { call, result ->
             when (call.method) {
                 "getLaunchConfig" -> {
                     val config = mutableMapOf<String, Any?>(
@@ -224,11 +238,164 @@ class MainActivity : FlutterActivity() {
                     result.success(mapOf("running" to MioForegroundService.isRunning(this)))
                 }
 
+                "storage.status" -> result.success(storageStatus())
+
+                "storage.request" -> requestStorage(call, result)
+
+                "media.saveImage" -> saveImageToGallery(call, result)
+
                 else -> result.notImplemented()
             }
         }
+
     }
 
+    /// Back is decided in Dart (page handler, history, double-press exit);
+    /// native only finishes the activity when Dart reports it is not handled.
+    private fun handleBack() {
+        channel.invokeMethod("backPressed", null, object : MethodChannel.Result {
+            override fun success(result: Any?) {
+                if (result != true) finish()
+            }
+
+            override fun error(code: String, message: String?, details: Any?) {
+                finish()
+            }
+
+            override fun notImplemented() {
+                finish()
+            }
+        })
+    }
+
+    // Android 15+ uses predictive back and never calls onBackPressed().
+    @Suppress("DEPRECATION")
+    override fun onBackPressed() {
+        handleBack()
+    }
+
+
+    private fun storagePermissions(type: String): Array<String> {
+        return when {
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU ->
+                if (type == "video") arrayOf(Manifest.permission.READ_MEDIA_VIDEO)
+                else arrayOf(Manifest.permission.READ_MEDIA_IMAGES)
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q ->
+                arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE)
+            else -> arrayOf(
+                Manifest.permission.READ_EXTERNAL_STORAGE,
+                Manifest.permission.WRITE_EXTERNAL_STORAGE,
+            )
+        }
+    }
+
+    private fun storageStatus(): Map<String, Any?> {
+        val permissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            arrayOf(Manifest.permission.READ_MEDIA_IMAGES)
+        } else {
+            arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE)
+        }
+        val granted = permissions.all {
+            checkSelfPermission(it) == PackageManager.PERMISSION_GRANTED
+        }
+        return mapOf(
+            "granted" to granted,
+            "scoped" to (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q),
+        )
+    }
+
+    private fun requestStorage(call: MethodCall, result: MethodChannel.Result) {
+        val type = call.argument<String>("type") ?: "images"
+        val missing = storagePermissions(type).filter {
+            checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED
+        }
+        if (missing.isEmpty()) {
+            result.success(storageStatus())
+            return
+        }
+        pendingStorage = result
+        pendingStorageType = type
+        requestPermissions(missing.toTypedArray(), REQUEST_STORAGE)
+    }
+
+    private fun saveImageToGallery(call: MethodCall, result: MethodChannel.Result) {
+        val source = call.argument<String>("path")
+        if (source == null) {
+            result.error("bad_args", "path is required", null)
+            return
+        }
+        val album = (call.argument<String>("album") ?: "Mio")
+            .replace(Regex("[^A-Za-z0-9._ -]"), "_")
+        executor.execute {
+            try {
+                val file = File(source)
+                if (!file.exists()) throw IllegalArgumentException("file not found: $source")
+                val name = "${System.currentTimeMillis()}-" +
+                    file.name.replace(Regex("[^A-Za-z0-9._-]"), "_")
+
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    val values = ContentValues().apply {
+                        put(MediaStore.MediaColumns.DISPLAY_NAME, name)
+                        put(MediaStore.MediaColumns.MIME_TYPE, "image/png")
+                        put(MediaStore.MediaColumns.RELATIVE_PATH, "Pictures/$album")
+                        put(MediaStore.MediaColumns.IS_PENDING, 1)
+                    }
+                    val uri = contentResolver.insert(
+                        MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                        values,
+                    ) ?: throw IllegalStateException("MediaStore refused the insert")
+                    contentResolver.openOutputStream(uri)?.use { output ->
+                        file.inputStream().use { input -> input.copyTo(output) }
+                    } ?: throw IllegalStateException("cannot open $uri")
+                    values.clear()
+                    values.put(MediaStore.MediaColumns.IS_PENDING, 0)
+                    contentResolver.update(uri, values, null, null)
+                    runOnUiThread {
+                        result.success(
+                            mapOf("uri" to uri.toString(), "name" to name, "album" to album),
+                        )
+                    }
+                } else {
+                    if (checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) !=
+                        PackageManager.PERMISSION_GRANTED
+                    ) {
+                        runOnUiThread {
+                            result.error(
+                                "storage_denied",
+                                "WRITE_EXTERNAL_STORAGE is not granted",
+                                null,
+                            )
+                        }
+                        return@execute
+                    }
+                    val directory = File(
+                        Environment.getExternalStoragePublicDirectory(
+                            Environment.DIRECTORY_PICTURES,
+                        ),
+                        album,
+                    )
+                    directory.mkdirs()
+                    val target = File(directory, name)
+                    file.inputStream().use { input ->
+                        target.outputStream().use { output -> input.copyTo(output) }
+                    }
+                    MediaScannerConnection.scanFile(this, arrayOf(target.absolutePath), null, null)
+                    runOnUiThread {
+                        result.success(
+                            mapOf(
+                                "uri" to target.toURI().toString(),
+                                "name" to name,
+                                "album" to album,
+                                "path" to target.absolutePath,
+                            ),
+                        )
+                    }
+                }
+            } catch (error: Exception) {
+                runOnUiThread { result.error("save_failed", error.message, null) }
+            }
+        }
+    }
 
     private fun postNotification(title: String, body: String, id: Int) {
         val manager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
@@ -257,6 +424,13 @@ class MainActivity : FlutterActivity() {
         grantResults: IntArray,
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == REQUEST_STORAGE) {
+            val pending = pendingStorage
+            pendingStorage = null
+            pendingStorageType = "images"
+            pending?.success(storageStatus())
+            return
+        }
         if (requestCode != REQUEST_NOTIFY) return
         val pending = pendingNotification ?: return
         pendingNotification = null
@@ -405,5 +579,6 @@ class MainActivity : FlutterActivity() {
     companion object {
         private const val REQUEST_PICK_IMAGE = 7001
         private const val REQUEST_NOTIFY = 7002
+        private const val REQUEST_STORAGE = 7003
     }
 }

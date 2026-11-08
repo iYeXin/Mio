@@ -237,6 +237,17 @@ Windows 没有对应实现，调用返回 `UNSUPPORTED`。
 
 `path` 是相对沙箱的路径，可以直接交给 `fs.readBytes` / `fs.blobUrl`。
 
+## storage
+
+| 方法 | 返回 |
+|---|---|
+| `storage.status()` | `{ granted, scoped }` |
+| `storage.request({ type?: "images" \| "video" })` | 申请相册读取权限，返回同样的状态 |
+
+Android 13+ 用 `READ_MEDIA_IMAGES` / `READ_MEDIA_VIDEO`，更老的系统用
+`READ_EXTERNAL_STORAGE`（需要写共享目录时还会带上 `WRITE_EXTERNAL_STORAGE`）。
+`scoped=true` 表示系统处于分区存储模式：直接写共享目录不可用，请走 `media.saveImage`。
+
 ## foreground
 
 Android 前台服务：带一个常驻通知，让进程在后台继续存活（后台下载、长任务）。
@@ -441,6 +452,21 @@ await processApi.exec({ path: "sidecar/tool.exe", args: ["--json"], stdin: "\n" 
 
 Android 上 `windowApi` 返回 `supported: false`，动作调用会抛 `UNSUPPORTED`。
 
+## 返回键
+
+Android 的返回键由壳接管，顺序是：
+
+1. 页面监听 `app.backPressed`，在 400 ms 内调用 `app.consumeBack()` 表示自己处理了
+   （关闭弹窗、切回上一屏），壳不会再做任何事；
+2. 页面没有处理时，如果当前地址不是应用入口，壳在 WebView 历史里后退；
+3. 已经在入口页时，第一次返回提示“再按一次退出”，2 秒内再按才真正退出。
+
+```ts
+Mio.on("app.backPressed", () => {
+  if (closeDialog()) void app.consumeBack();
+});
+```
+
 ## 事件
 
 | 事件 | 数据 |
@@ -516,6 +542,9 @@ Promise 会以 `MioError` 拒绝，带 `code`、`message`、`data`：
 | `HTTP_NO_PENDING_REQUEST` | `http.respond` 的 id 不存在或已回应 |
 | `NOTIFY_FAILED` | 通知发送失败 |
 | `MEDIA_FAILED` | 选择图片失败 |
+| `SAVE_FAILED` | `media.saveImage` 写入相册失败 |
+| `STORAGE_DENIED` | 没有写入共享存储的权限（旧系统） |
+| `STORAGE_ERROR` | 存储权限查询/申请失败 |
 | `FOREGROUND_FAILED` | 前台服务启动/停止失败 |
 | `HTTP_INCOMPLETE` | 传输提前结束，与 `Content-Length` 不符 |
 | `HTTP_RANGE_UNSUPPORTED` | 续传请求没有被服务器接受 |

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -108,6 +109,27 @@ class MioApi with WidgetsBindingObserver {
     _eventSink?.call(name, data);
   }
 
+  Completer<bool>? _pendingBack;
+
+  /// Ask the page whether it handles the Android back button.
+  ///
+  /// The page gets 400 ms to call `app.consumeBack`; otherwise the shell goes
+  /// back in WebView history, and only exits at the root.
+  Future<bool> requestBack({required bool canGoBack}) async {
+    if (_pendingBack != null) return true;
+    final completer = Completer<bool>();
+    _pendingBack = completer;
+    emit('app.backPressed', {'canGoBack': canGoBack});
+    try {
+      return await completer.future.timeout(
+        const Duration(milliseconds: 400),
+        onTimeout: () => false,
+      );
+    } finally {
+      if (identical(_pendingBack, completer)) _pendingBack = null;
+    }
+  }
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     emit('app.lifecycle', {'state': state.name});
@@ -143,10 +165,14 @@ class MioApi with WidgetsBindingObserver {
             'notify': platformName == 'android',
             'media': platformName == 'android' || platformName == 'windows',
             'foreground': platformName == 'android' && manifest.foregroundService,
+            'storage': platformName == 'android',
             'tray': platformName == 'windows',
             'share': platformName == 'android' || platformName == 'windows',
           },
         };
+      case 'app.consumeBack':
+        _pendingBack?.complete(true);
+        return null;
       case 'app.quit':
         await _quit();
         return null;
@@ -314,6 +340,7 @@ class MioApi with WidgetsBindingObserver {
       case final method
           when method.startsWith('notify.') ||
               method.startsWith('media.') ||
+              method.startsWith('storage.') ||
               method.startsWith('foreground.'):
         return await _device.call(method, params);
       case final method

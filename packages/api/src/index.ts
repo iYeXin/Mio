@@ -27,6 +27,8 @@ export interface AppFeatures {
   tray: boolean;
   /** System share sheet. */
   share: boolean;
+  /** `storage` namespace (Android only). */
+  storage: boolean;
 }
 
 export interface AppInfo {
@@ -452,6 +454,12 @@ export const app = {
   log: (level: "debug" | "info" | "warn" | "error", message: string): Promise<AppLogResult> =>
     invoke("app.log", { level, message }),
   quit: (): Promise<void> => invoke("app.quit"),
+
+  /**
+   * Marks the current back press as handled. Call it from an `app.backPressed`
+   * handler when the page closed a dialog or moved between screens itself.
+   */
+  consumeBack: (): Promise<void> => invoke("app.consumeBack"),
 };
 
 export const platform = {
@@ -692,6 +700,32 @@ export const media = {
   /** Android system photo picker with multi-select; empty when cancelled. */
   pickImages: (options?: { max?: number }): Promise<PickedImage[]> =>
     invoke("media.pickImages", options ?? {}),
+
+  /**
+   * Copies an image from the sandbox into the system gallery (Android) and
+   * returns where it landed. No storage permission is needed on Android 10+.
+   */
+  saveImage: (options: {
+    /** Sandbox-relative or absolute path. */
+    path: string;
+    /** Album under Pictures. Defaults to "Mio". */
+    album?: string;
+  }): Promise<{ uri: string; name: string; album: string; path?: string }> =>
+    invoke("media.saveImage", options),
+};
+
+export const storage = {
+  /** Current storage permission state (Android only). */
+  status: (): Promise<{ granted: boolean; scoped: boolean }> => invoke("storage.status"),
+
+  /**
+   * Requests read access to images/videos (Android 13+) or the legacy external
+   * storage permission on older releases. Resolves with the resulting state.
+   */
+  request: (options?: {
+    type?: "images" | "video";
+  }): Promise<{ granted: boolean; scoped: boolean }> =>
+    invoke("storage.request", options ?? {}),
 };
 
 export const foreground = {
