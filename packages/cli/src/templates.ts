@@ -89,17 +89,32 @@ async function readManifest(directory: string): Promise<TemplateManifest | null>
   }
 }
 
-/** Downloads and unpacks the template bundle into the per-version cache. */
-async function fetchTemplates(log: (message: string) => void): Promise<TemplateManifest> {
+/** Downloads the release manifest only; files are fetched on demand. */
+async function fetchManifest(log: (message: string) => void): Promise<TemplateManifest> {
   const root = cacheRoot();
   const manifestUrl = `${MIO_RELEASE_BASE}/v${MIO_CLI_VERSION}/manifest.json`;
   log(`Downloading template manifest: ${manifestUrl}`);
   const manifest = JSON.parse(await fetchText(manifestUrl)) as TemplateManifest;
   assertCompatible(manifest, `release v${MIO_CLI_VERSION}`);
   await mkdir(root, { recursive: true });
-  await writeFile(join(root, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+  await writeFile(
+    join(root, "manifest.json"),
+    `${JSON.stringify(manifest, null, 2)}\n`,
+    "utf8",
+  );
+  return manifest;
+}
 
-  for (const [key, file] of Object.entries(manifest.files)) {
+/** Downloads only the requested template keys (android arm64, windows, …). */
+async function downloadTemplates(
+  manifest: TemplateManifest,
+  keys: readonly string[],
+  log: (message: string) => void,
+): Promise<void> {
+  const root = cacheRoot();
+  for (const key of keys) {
+    const file = manifest.files[key];
+    if (!file) continue;
     const target = join(root, file.name);
     if (await exists(target)) {
       if ((await sha256(target)) === file.sha256) continue;
@@ -122,18 +137,21 @@ async function fetchTemplates(log: (message: string) => void): Promise<TemplateM
       await rm(target, { force: true });
     }
   }
-  return manifest;
 }
 
 function stripArchiveSuffix(name: string): string {
   return name.replace(/\.zip$/i, "");
 }
 
-async function ensureTemplates(log: (message: string) => void): Promise<TemplateManifest> {
+async function ensureTemplates(
+  log: (message: string) => void,
+  keys: readonly string[],
+): Promise<TemplateManifest> {
   const root = cacheRoot();
-  const manifest = await readManifest(root);
-  if (!manifest) return await fetchTemplates(log);
-  assertCompatible(manifest, `template cache ${root}`);
+  const cached = await readManifest(root);
+  const manifest = cached ?? (await fetchManifest(log));
+  assertCompatible(manifest, cached ? `template cache ${root}` : `release v${MIO_CLI_VERSION}`);
+  await downloadTemplates(manifest, keys, log);
   return manifest;
 }
 
@@ -259,7 +277,7 @@ export async function resolveAndroidTemplate(
   const local = await localAndroidTemplate(abi);
   if (local) return local;
 
-  const manifest = await ensureTemplates(log);
+  const manifest = await ensureTemplates(log, [ABI_KEY[abi]]);
   const file = manifest.files[ABI_KEY[abi]];
   if (!file) {
     throw new TemplateError(
@@ -277,7 +295,7 @@ export async function resolveAndroidTemplate(
   // different shell than the apiVersion it verified.
   if ((await sha256(path)) !== file.sha256) {
     await rm(path, { force: true });
-    await fetchTemplates(log);
+    await downloadTemplates(manifest, [ABI_KEY[abi]], log);
   }
   await assertApkFormat(path);
   return { path, source: "cache", version: manifest.templateVersion };
@@ -309,7 +327,7 @@ export async function resolveWindowsTemplate(
   const local = await localWindowsTemplate();
   if (local) return local;
 
-  const manifest = await ensureTemplates(log);
+  const manifest = await ensureTemplates(log, ["windows"]);
   const file = manifest.files["windows"];
   if (!file) {
     throw new TemplateError(
@@ -325,7 +343,7 @@ export async function resolveWindowsTemplate(
   const cached = (await exists(marker)) ? (await readFile(marker, "utf8")).trim() : "";
   if (cached !== file.sha256) {
     await rm(directory, { recursive: true, force: true });
-    await fetchTemplates(log);
+    await downloadTemplates(manifest, ["windows"], log);
   }
   return { path: directory, source: "cache", version: manifest.templateVersion };
 }

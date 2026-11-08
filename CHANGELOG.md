@@ -3,6 +3,10 @@
 本文件记录 Mio 的对外变更。版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)；
 `MIO_API_VERSION`（桥契约）与 CLI 版本分开演进，见 [docs/release.md](docs/release.md)。
 
+## 0.2.1 — 2026-11-08
+
+- 模板改为按需下载：AAB 只取 universal，APK 只取配置的 ABI，Windows 模板单独取；
+  0.2.0 的 `tools install --format aab` 会把所有模板一次拉下来，已修正。
 ## 0.2.0 — 2026-11-08
 
 - **AAB 构建**：`mio build --platform android --format aab`。流程是
