@@ -165,18 +165,23 @@ jobs:
           cp "$ALIGN" staging/tools/
           mkdir -p staging/tools/lib64
 
-          # Libraries that live next to the SDK binary.
-          if [ -d "$(dirname "$ALIGN")/lib64" ]; then
-            cp -R "$(dirname "$ALIGN")/lib64/." staging/tools/lib64/
+          # Copy only the shared libraries zipalign actually links against;
+          # the whole lib64/ is ~50 MB of LLVM libraries it never touches.
+          if [ "$(uname)" = "Darwin" ]; then
+            DEPS="$(otool -L "$ALIGN" | tail -n +2 | awk "{print \$1}" | grep -E "^/" || true)"
+          else
+            DEPS="$(ldd "$ALIGN" | awk "{print \$3}" | grep -E "^/" || true)"
           fi
-
-          # Libraries resolved from the distro (arm64 path), minus libc/libm and
-          # the loader itself.
+          ALIGN_DIR="$(dirname "$ALIGN")"
+          for lib in $DEPS; do
+            # Only libraries that ship with build-tools; system ones are assumed.
+            case "$lib" in "$ALIGN_DIR"/*) cp -L "$lib" staging/tools/lib64/ ;; esac
+          done
           for lib in $EXTRA_LIBS; do
             case "$lib" in
-              */libc.so.6|*/libm.so.6|*/libdl.so.2|*/libpthread.so.0|*/librt.so.1|*/libgcc_s.so.1|*/ld-linux*) continue ;;
+              */libc.so.6|*/libm.so.6|*/libdl.so.2|*/libpthread.so.0|*/librt.so.1|*/libgcc_s.so.1|*/ld-linux*|*/ld64.so.1) continue ;;
             esac
-            cp -L "$lib" staging/tools/lib64/
+            [ -f "$lib" ] && cp -L "$lib" staging/tools/lib64/
           done
 
           tar -czf "mio-tools-$PLATFORM-tools.tar.gz" -C staging/tools .

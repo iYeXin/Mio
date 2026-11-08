@@ -3,6 +3,11 @@
 本文件记录 Mio 的对外变更。版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)；
 `MIO_API_VERSION`（桥契约）与 CLI 版本分开演进，见 [docs/release.md](docs/release.md)。
 
+## 0.1.9 — 2026-11-08
+
+- 工具包只打包 `zipalign` 真正需要的共享库，不再把整个 build-tools `lib64`
+  （近 50 MB 的 LLVM 库）塞进去：linux-x64 从 19.7 MB 降到约 3 MB，
+  darwin-arm64 从 33.3 MB 降到约 1.5 MB；arm64 仍带发行版 `zipalign` 的依赖。
 ## 0.1.8 — 2026-11-08
 
 - **Android 返回键不再一次退出**：壳先询问页面（`app.backPressed` + `app.consumeBack`），
