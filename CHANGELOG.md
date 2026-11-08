@@ -3,6 +3,11 @@
 本文件记录 Mio 的对外变更。版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)；
 `MIO_API_VERSION`（桥契约）与 CLI 版本分开演进，见 [docs/release.md](docs/release.md)。
 
+## 0.1.11 — 2026-11-08
+
+- 工具包组装改为按依赖白名单拷贝，并显式保留 `libc++.dylib` / `libc++.so`；
+  macOS 包会校验 `lib64/libc++.dylib` 是否存在，缺失直接让构建失败；
+- 修掉 0.1.10 macOS 包里误把 `zipalign` 自身复制进 `lib64/`、却没有 C++ 运行时的问题。
 ## 0.1.10 — 2026-11-08
 
 - **返回键完全交给应用**：框架不再弹“再按一次退出”的 SnackBar。页面在

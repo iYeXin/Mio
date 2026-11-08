@@ -160,36 +160,49 @@ jobs:
             JAR="$(find /tmp/build-tools -name apksigner.jar | head -n1)"
           fi
 
-          rm -rf staging && mkdir -p staging/tools
+          ALIGN_DIR="$(dirname "$ALIGN")"
+          rm -rf staging && mkdir -p staging/tools/lib64
           cp "$JAR" staging/tools/apksigner.jar
           cp "$ALIGN" staging/tools/
-          mkdir -p staging/tools/lib64
 
-          # Copy only the shared libraries zipalign actually links against;
-          # the whole lib64/ is ~50 MB of LLVM libraries it never touches.
+          copy_lib() {
+            local source="$1"
+            [ -f "$source" ] || return 0
+            local base
+            base="$(basename "$source")"
+            # Never copy the zipalign binary itself, nor the C runtime.
+            [ "$base" = "$(basename "$ALIGN")" ] && return 0
+            case "$base" in
+              libc.so.*|libm.so.*|libdl.so.*|libpthread.so.*|librt.so.*|libgcc_s.so.*|ld-linux*|ld64.so.*) return 0 ;;
+            esac
+            cp -L "$source" staging/tools/lib64/
+          }
+
           if [ "$(uname)" = "Darwin" ]; then
-            DEPS="$(otool -L "$ALIGN" | tail -n +2 | awk "{print \$1}" | grep -E "^/" || true)"
+            DEPS="$(otool -L "$ALIGN" | tail -n +2 | awk '{print $1}')"
           else
-            DEPS="$(ldd "$ALIGN" | awk "{print \$3}" | grep -E "^/" || true)"
+            DEPS="$(ldd "$ALIGN" | awk '{print $3}' | grep -E '^/' || true)"
           fi
-          ALIGN_DIR="$(dirname "$ALIGN")"
-          for lib in $DEPS; do
-            # Only libraries that ship with build-tools; system ones are assumed.
-            case "$lib" in
-              "$ALIGN_DIR"/*) cp -L "$lib" staging/tools/lib64/ ;;
-              @rpath/*)
-                # macOS: resolve @rpath/<name> against build-tools/lib64.
-                base="$(basename "$lib")"
-                [ -f "$ALIGN_DIR/lib64/$base" ] && cp -L "$ALIGN_DIR/lib64/$base" staging/tools/lib64/
-                ;;
+          for dep in $DEPS; do
+            case "$dep" in
+              "$ALIGN_DIR"/*) copy_lib "$dep" ;;
+              @rpath/*) copy_lib "$ALIGN_DIR/lib64/$(basename "$dep")" ;;
             esac
           done
           for lib in $EXTRA_LIBS; do
-            case "$lib" in
-              */libc.so.6|*/libm.so.6|*/libdl.so.2|*/libpthread.so.0|*/librt.so.1|*/libgcc_s.so.1|*/ld-linux*|*/ld64.so.1) continue ;;
-            esac
-            [ -f "$lib" ] && cp -L "$lib" staging/tools/lib64/
+            copy_lib "$lib"
           done
+
+          # Explicitly keep the C++ runtime zipalign is linked against.
+          for name in libc++.dylib libc++.so libc++abi.1.dylib libstdc++.so.6; do
+            [ -f "$ALIGN_DIR/lib64/$name" ] && cp -L "$ALIGN_DIR/lib64/$name" staging/tools/lib64/
+          done
+
+          if [ "$(uname)" = "Darwin" ] && [ ! -f staging/tools/lib64/libc++.dylib ]; then
+            echo "::error::macOS bundle is missing libc++.dylib"
+            exit 1
+          fi
+          ls -l staging/tools staging/tools/lib64
 
           tar -czf "mio-tools-$PLATFORM-tools.tar.gz" -C staging/tools .
           "$JAVA_HOME/bin/jlink" --module-path "$JAVA_HOME/jmods" \
