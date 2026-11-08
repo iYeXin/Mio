@@ -3,6 +3,14 @@
 本文件记录 Mio 的对外变更。版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)；
 `MIO_API_VERSION`（桥契约）与 CLI 版本分开演进，见 [docs/release.md](docs/release.md)。
 
+## 0.1.12 — 2026-11-08
+
+- `mio create` 遇到非空目录不再报错，也不再覆盖内容：转为在原目录初始化，保留已有
+  `package.json` 的字段、脚本和依赖；
+- 新增 `mio init`：给已有项目补 `mio.config.json`、`@iyexin/mio-*` 依赖和 npm 脚本，
+  已存在的东西一律不覆盖；重复执行是 no-op；
+- 新增 `mio upgrade [version]`：只更新项目里 `@iyexin/mio-*` 的版本范围；
+- 新增合并逻辑的单元测试（已有脚本/依赖/配置/`.gitignore` 保持不变、二次执行无改动）。
 ## 0.1.11 — 2026-11-08
 
 - 工具包组装改为按依赖白名单拷贝，并显式保留 `libc++.dylib` / `libc++.so`；

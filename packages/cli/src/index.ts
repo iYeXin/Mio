@@ -2,18 +2,21 @@ import { parseArgs } from "node:util";
 import { join } from "node:path";
 import { MIO_CLI_VERSION } from "./constants.js";
 import { loadConfig } from "./config.js";
-import { createProject } from "./create.js";
+import { createProject, printInit } from "./create.js";
 import { buildAndroid } from "./build-android.js";
 import { buildWindows } from "./build-windows.js";
 import { dev } from "./dev.js";
 import { doctor } from "./doctor.js";
 import { keystoreCommand } from "./keystore-command.js";
 import { exists } from "./project.js";
+import { initProject, upgradeProject } from "./scaffold.js";
 
 const HELP = `Mio — lightweight cross-platform app framework
 
 Usage:
-  mio create [target]
+  mio create [target]        scaffold a new project (existing dirs are initialized in place)
+  mio init [target]          add Mio to an existing project (never overwrites files)
+  mio upgrade [version]      move the project's @iyexin/mio-* packages to a version
   mio build [--platform android|windows] [--skip-web] [--template <path>] [--config mio.config.json]
   mio dev --platform android|windows [--no-install] [--template <path>]
   mio keystore [--out <path>] [--alias <name>] [--dname <dn>] [--days <n>] [--force]
@@ -68,6 +71,25 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
       await createProject({ target });
       return;
     }
+    case "init": {
+      const target = positionals[1] ?? ".";
+      const result = await initProject(resolveProcessPath(target));
+      printInit(result.target, result.changes, result.packageCreated, !result.created);
+      return;
+    }
+    case "upgrade": {
+      const result = await upgradeProject(process.cwd(), positionals[1]);
+      if (result.changes.length === 0) {
+        console.log(`All Mio packages are already at ^${result.version}.`);
+        return;
+      }
+      for (const change of result.changes) {
+        console.log(`${change.name}  ${change.from} -> ${change.to}`);
+      }
+      console.log("");
+      console.log("Run npm install to apply.");
+      return;
+    }
     case "build": {
       const loaded = await loadConfig(process.cwd(), values.config);
       if (values.abi) {
@@ -120,6 +142,10 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
     default:
       throw new Error(`Unknown command: ${command}\n\n${HELP}`);
   }
+}
+
+function resolveProcessPath(value: string): string {
+  return value === "." ? process.cwd() : value;
 }
 
 function normalizePlatforms(values: string[] | undefined): Array<"android" | "windows"> {

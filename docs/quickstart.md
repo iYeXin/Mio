@@ -34,6 +34,26 @@ npm install
 生成的是一个普通的 Vite + TypeScript 项目，唯一的 Mio 依赖是 `@iyexin/mio-api`。
 可以像普通前端项目一样组织代码、加依赖、跑测试。
 
+## 已有项目
+
+在现有项目根目录执行 `init`，只补缺失的部分：已有的 `package.json` 字段、脚本和依赖
+都保留，`mio.config.json` 已存在时原样保留，重复执行不会重复初始化：
+
+```bash
+npx mio init
+```
+
+`mio create` 指向一个非空目录时，也是这个行为——在原目录上初始化，而不是覆盖。
+
+## 升级
+
+```bash
+npx mio upgrade        # 升到当前 CLI 的版本
+npx mio upgrade 0.2.0  # 或指定版本
+```
+
+只改 `@iyexin/mio-*` 的版本范围，其它依赖不动；之后运行 `npm install`。
+
 ## 开发
 
 ```bash
