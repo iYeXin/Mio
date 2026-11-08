@@ -41,6 +41,16 @@ for (const name of files) {
       size: fragment.jre.size,
       strip: 0,
     },
+    ...(fragment.bundle
+      ? {
+          bundle: {
+            url: `${base}/${fragment.bundle.file}`,
+            sha256: fragment.bundle.sha256,
+            size: fragment.bundle.size,
+            strip: 0,
+          },
+        }
+      : {}),
   }
 }
 

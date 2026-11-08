@@ -16,6 +16,12 @@ export interface AndroidTools {
   zipalign: string;
   /** keytool executable, when available. */
   keytool?: string;
+  /** jarsigner executable, when available (bundled JRE includes it). */
+  jarsigner?: string;
+  /** aapt2 executable, when the bundle component is installed. */
+  aapt2?: string;
+  /** bundletool-all jar, when the bundle component is installed. */
+  bundletoolJar?: string;
   /** Where the tools came from. */
   source: ToolSource;
   /** build-tools version, when source is android-sdk. */
@@ -31,6 +37,9 @@ export interface AndroidToolStatus {
   java?: string;
   jreHome?: string;
   keytool?: string;
+  jarsigner?: string;
+  aapt2?: string;
+  bundletoolJar?: string;
   apksignerJar?: string;
   zipalign?: string;
   sdkRoot?: string;
@@ -58,6 +67,9 @@ export function toolsFromStatus(status: AndroidToolStatus): AndroidTools {
     apksignerJar: status.apksignerJar,
     zipalign: status.zipalign,
     keytool: status.keytool,
+    jarsigner: status.jarsigner,
+    aapt2: status.aapt2,
+    bundletoolJar: status.bundletoolJar,
     source: status.toolsSource ?? "android-sdk",
     buildToolsVersion: status.buildToolsVersion,
     sdkRoot: status.sdkRoot,
@@ -65,14 +77,27 @@ export function toolsFromStatus(status: AndroidToolStatus): AndroidTools {
   };
 }
 
-export function describeMissing(status: AndroidToolStatus): string {
+export function describeMissing(
+  status: AndroidToolStatus,
+  options: { bundle?: boolean } = {},
+): string {
   const missing: string[] = [];
   if (!status.java) missing.push("java");
   if (!status.apksignerJar) missing.push("apksigner.jar");
   if (!status.zipalign) missing.push("zipalign");
+  if (options.bundle) {
+    if (!status.aapt2) missing.push("aapt2");
+    if (!status.bundletoolJar) missing.push("bundletool.jar");
+    if (!status.jarsigner) missing.push("jarsigner");
+  }
   return missing.length === 0
     ? "nothing missing"
     : `missing: ${missing.join(", ")}`;
+}
+
+/** AAB output additionally needs aapt2, bundletool and jarsigner. */
+export function bundleComplete(status: AndroidToolStatus): boolean {
+  return Boolean(status.aapt2 && status.bundletoolJar && status.jarsigner);
 }
 
 export interface DiscoverOptions {
@@ -92,6 +117,12 @@ const keytoolName = (platform: NodeJS.Platform): string =>
 
 const zipalignName = (platform: NodeJS.Platform): string =>
   isWindows(platform) ? "zipalign.exe" : "zipalign";
+
+const aapt2Name = (platform: NodeJS.Platform): string =>
+  isWindows(platform) ? "aapt2.exe" : "aapt2";
+
+const jarsignerName = (platform: NodeJS.Platform): string =>
+  isWindows(platform) ? "jarsigner.exe" : "jarsigner";
 
 async function exists(path: string): Promise<boolean> {
   try {
@@ -198,6 +229,24 @@ async function resolveKeytool(
   return (await exists(candidate)) ? candidate : undefined;
 }
 
+async function resolveNeighbor(
+  java: string,
+  name: string,
+  command: string,
+): Promise<string | undefined> {
+  if (java === "java") {
+    try {
+      const result = await run(command, ["-help"], { timeoutMs: 10_000 });
+      if (result.code === 0) return command;
+    } catch {
+      return undefined;
+    }
+    return undefined;
+  }
+  const candidate = join(dirname(java), name);
+  return (await exists(candidate)) ? candidate : undefined;
+}
+
 async function firstExisting(candidates: readonly string[]): Promise<string | undefined> {
   for (const candidate of candidates) {
     if (await exists(candidate)) return candidate;
@@ -266,6 +315,15 @@ export async function inspectAndroidTools(
     ]);
     if (status.apksignerJar && status.zipalign) status.toolsSource = "env-bundle";
 
+    status.aapt2 = await firstExisting([
+      join(toolsDir, aapt2Name(platform)),
+      join(toolsDir, "bin", aapt2Name(platform)),
+    ]);
+    status.bundletoolJar = await firstExisting([
+      join(toolsDir, "bundletool.jar"),
+      join(toolsDir, "lib", "bundletool.jar"),
+    ]);
+
     const jreHome = join(toolsDir, "jre");
     if (await exists(join(jreHome, "bin", javaName(platform)))) {
       status.jreHome = jreHome;
@@ -299,6 +357,7 @@ export async function inspectAndroidTools(
     status.java = java.java;
     status.jreHome = java.jreHome ?? status.jreHome;
     status.keytool = await resolveKeytool(java.java, platform);
+    status.jarsigner = await resolveNeighbor(java.java, jarsignerName(platform), "jarsigner");
   }
 
   return status;

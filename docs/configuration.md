@@ -90,6 +90,8 @@
 
 签名密码只通过环境变量读取，不写入配置或命令行参数。
 
+`--format aab` 会忽略 `abi`，固定使用 universal 模板；Play 负责按 ABI 拆分下发。
+
 ## windows
 
 | 字段 | 默认 | 说明 |
@@ -119,8 +121,18 @@
 3. 都没有时自动下载缺的部分。
 
 只下载缺的组件：有 Java 就只下工具（约 1.4 MB），有 build-tools 就只下 Java 运行时
-（约 18 MB），都没有则约 19 MB。下载校验 sha256，缓存在
+（约 18 MB），都没有则约 19 MB。AAB 额外需要 `bundle` 组件（`aapt2` +
+`bundletool`，约 37 MB），只在 `--format aab` 时下载。下载校验 sha256，缓存在
 `~/.mio/tools/android/<清单版本>/<平台>/`，之后离线可用。
+
+想提前准备（例如 CI 预热），用：
+
+```bash
+mio tools                          # 查看各部分是否就绪
+mio tools install                  # APK 构建所需：工具 + JRE + 模板
+mio tools install --format aab     # 额外拉 aapt2 + bundletool
+mio tools install --platform all   # Android 与 Windows 模板都拉
+```
 
 | 变量 | 作用 |
 |---|---|

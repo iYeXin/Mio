@@ -17,6 +17,7 @@ const platform = platformKeyOf(process.platform, process.arch);
 const windows = process.platform === "win32";
 const javaName = windows ? "java.exe" : "java";
 const zipalignName = windows ? "zipalign.exe" : "zipalign";
+const aapt2Name = windows ? "aapt2.exe" : "aapt2";
 
 interface Archive {
   path: string;
@@ -135,6 +136,43 @@ test("installs only the requested component", async () => {
     const toolsOnly = await installToolBundle({ manifest, cacheDir, components: ["tools"] });
     assert.deepEqual(toolsOnly.installed, ["tools"]);
     assert.ok(await readFile(join(toolsOnly.dir, "apksigner.jar")));
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("installs the bundle component (aapt2 + bundletool) on its own", async () => {
+  const root = await mkdtemp(join(tmpdir(), "mio-bundle-"));
+  try {
+    const archive = await makeArchive(
+      root,
+      "bundle",
+      { [aapt2Name]: "dummy-aapt2", "bundletool.jar": "dummy-bundletool" },
+      [aapt2Name, "bundletool.jar"],
+    );
+    const manifest: ToolBundleManifest = {
+      schemaVersion: 2,
+      latest: "1",
+      bundles: {
+        "1": {
+          platforms: {
+            [platform]: {
+              bundle: {
+                url: pathToFileURL(archive.path).href,
+                sha256: archive.sha256,
+                size: archive.size,
+                strip: 0,
+              },
+            },
+          },
+        },
+      },
+    };
+
+    const installed = await installToolBundle({ manifest, cacheDir: join(root, "cache"), components: ["bundle"] });
+    assert.deepEqual(installed.installed, ["bundle"]);
+    assert.ok(await readFile(join(installed.dir, aapt2Name)));
+    assert.ok(await readFile(join(installed.dir, "bundletool.jar")));
   } finally {
     await rm(root, { recursive: true, force: true });
   }

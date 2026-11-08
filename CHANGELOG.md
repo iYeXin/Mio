@@ -3,6 +3,20 @@
 本文件记录 Mio 的对外变更。版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)；
 `MIO_API_VERSION`（桥契约）与 CLI 版本分开演进，见 [docs/release.md](docs/release.md)。
 
+## 0.2.0 — 2026-11-08
+
+- **AAB 构建**：`mio build --platform android --format aab`。流程是
+  `APK 注入 → aapt2 convert（proto）→ 组装 module → bundletool build-bundle →
+  bundletool validate → jarsigner 签名/校验`，产物在 `build/mio/android/*.aab`；
+- AAB 强制 universal 模板（Play 按 ABI 拆分），并要求配置发布证书；不能直接安装，
+  本地验证用 `bundletool build-apks`；
+- **按需下载**：工具包新增 `bundle` 组件（`aapt2` + `bundletool`，约 37 MB），
+  只有 `--format aab` 才会下载；APK 构建不需要；JRE 增加 `jdk.jartool` 以提供
+  `jarsigner`（约 +0.4 MB）；
+- 新增 `mio tools` / `mio tools install [--format aab] [--abi …] [--platform …]`，
+  可以按目标预下载工具与模板；`mio doctor` 显示 AAB 工具链状态；
+- linux-arm64 暂不提供 `bundle` 组件（没有可用的 arm64 aapt2），AAB 构建会返回
+  `BUNDLE_NOT_AVAILABLE`。
 ## 0.1.12 — 2026-11-08
 
 - `mio create` 遇到非空目录不再报错，也不再覆盖内容：转为在原目录初始化，保留已有

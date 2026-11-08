@@ -210,6 +210,8 @@ async function abisInApk(path: string): Promise<Set<string>> {
 export interface TemplateOptions {
   /** Explicit path from --template or MIO_*_TEMPLATE. */
   explicit?: string;
+  /** Override the configured ABI (AAB builds use the universal template). */
+  abi?: AndroidAbi;
   log?: (message: string) => void;
 }
 
@@ -236,7 +238,7 @@ export async function resolveAndroidTemplate(
   config: MioConfig,
   options: TemplateOptions = {},
 ): Promise<ResolvedTemplate> {
-  const abi = androidAbiOf(config);
+  const abi = options.abi ?? androidAbiOf(config);
   const log = options.log ?? (() => {});
 
   const explicit = [

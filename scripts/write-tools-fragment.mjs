@@ -19,6 +19,7 @@ function arg(name, required = true) {
 const platform = arg('platform')
 const toolsPath = resolve(arg('tools'))
 const jrePath = resolve(arg('jre'))
+const bundlePath = arg('bundle', false)
 const out = resolve(arg('out'))
 
 async function describe(path) {
@@ -32,6 +33,7 @@ const fragment = {
   tools: await describe(toolsPath),
   jre: await describe(jrePath),
 }
+if (bundlePath) fragment.bundle = await describe(resolve(bundlePath))
 
 await writeFile(out, `${JSON.stringify(fragment, null, 2)}\n`, 'utf8')
 console.log(`fragment: ${out} (${platform})`)

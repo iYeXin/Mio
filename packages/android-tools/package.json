@@ -1,6 +1,6 @@
 {
   "name": "@iyexin/mio-android-tools",
-  "version": "0.1.12",
+  "version": "0.2.0",
   "private": false,
   "type": "module",
   "description": "Android APK alignment, signing and verification for Mio",
@@ -16,7 +16,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json",
-    "test": "node --import tsx --test test/apksigner.test.ts test/discovery.test.ts test/signing.test.ts test/tool-bundle.test.ts"
+    "test": "node --import tsx --test test/apksigner.test.ts test/discovery.test.ts test/signing.test.ts test/tool-bundle.test.ts test/bundle.test.ts"
   },
   "engines": {
     "node": ">=20"

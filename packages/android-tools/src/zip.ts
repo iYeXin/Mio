@@ -1,8 +1,9 @@
 import { createWriteStream } from "node:fs";
-import { mkdir } from "node:fs/promises";
+import { mkdir, readdir } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
 import { pipeline } from "node:stream/promises";
 import yauzl from "yauzl";
+import yazl from "yazl";
 
 /** Lists entry names in a zip, without extracting anything. */
 export function listZipEntries(archive: string): Promise<string[]> {
@@ -98,6 +99,30 @@ export function readZipEntry(archive: string, wanted: string): Promise<Buffer | 
       zip.readEntry();
     });
   });
+}
+
+/** Writes a directory into a fresh zip, preserving relative paths. */
+export async function zipDirectory(source: string, output: string): Promise<void> {
+  const zip = new yazl.ZipFile();
+
+  async function walk(directory: string, prefix: string): Promise<void> {
+    const entries = await readdir(directory, { withFileTypes: true });
+    entries.sort((a, b) => a.name.localeCompare(b.name));
+    for (const entry of entries) {
+      const absolute = join(directory, entry.name);
+      const name = prefix ? `${prefix}/${entry.name}` : entry.name;
+      if (entry.isDirectory()) {
+        await walk(absolute, name);
+      } else if (entry.isFile()) {
+        zip.addFile(absolute, name);
+      }
+    }
+  }
+
+  await walk(source, "");
+  const done = pipeline(zip.outputStream, createWriteStream(output));
+  zip.end();
+  await done;
 }
 
 export { join as joinPath };

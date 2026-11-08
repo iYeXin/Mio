@@ -57,6 +57,19 @@ MIO_KS_PASS=<password> mio keystore --out .mio/release.p12 --alias release --dna
 
 详见[配置](/configuration#生成签名证书)。
 
+### Android App Bundle
+
+上传 Play 的 `.aab` 用**上传密钥**签名，Google 再用 Play App Signing 重签下发的 APK：
+
+```bash
+npx mio build --platform android --format aab
+```
+
+- AAB 用 `jarsigner` 签名（`apksigner` 只支持 APK），CLI 会自动执行并校验；
+- 密码仍然只从环境变量读取；
+- 首次上传前需要在 Play Console 启用 Play App Signing，并保管好上传密钥；
+- 本地不能直接安装 AAB，先 `bundletool build-apks` 拆成 APK。
+
 ### 校验
 
 ```bash
@@ -115,6 +128,7 @@ zipalign -c -v -P 16 4 build/mio/android/App.apk
 `signtool.exe` 随 Windows SDK 安装，通常位于
 `C:\Program Files (x86)\Windows Kits\10\bin\<version>\x64\signtool.exe`；不在 PATH
 时在 `signCommand` 里写绝对路径。
+
 
 ### 校验
 

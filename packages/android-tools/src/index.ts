@@ -8,6 +8,7 @@ export {
   statusComplete,
   toolsFromStatus,
   describeMissing,
+  bundleComplete,
   type AndroidToolStatus,
   type AndroidTools,
   type DiscoverOptions,
@@ -86,4 +87,11 @@ export {
 
 export { run, type ExecOptions, type ExecResult } from "./exec.js";
 
-export { listZipEntries, extractZip, readZipEntry } from "./zip.js";
+export { listZipEntries, extractZip, readZipEntry, zipDirectory } from "./zip.js";
+
+export {
+  buildAppBundle,
+  prepareModuleDirectory,
+  type BuildAppBundleOptions,
+  type BuildAppBundleResult,
+} from "./bundle.js";

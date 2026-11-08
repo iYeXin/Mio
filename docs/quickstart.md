@@ -90,6 +90,23 @@ build/mio/android/My-App-1.0.0.apk
 Android 运行时按 ABI 选择：`arm64`（默认，约 19 MB）、`universal`（约 54 MB，覆盖
 32 位设备与模拟器）、`x64`（约 20 MB，模拟器）。
 
+### Android App Bundle（Play）
+
+```bash
+npx mio build --platform android --format aab
+```
+
+产物是 `build/mio/android/<AppName>-<version>.aab`，用于 Google Play 上传。AAB 需要
+配置发布证书（`android.keystore` / `alias` / `storePasswordEnv`），会自动使用
+universal 模板，由 Play 按 ABI 拆分。首次构建会额外下载 `aapt2` 与 `bundletool`
+（约 37 MB），可以提前用 `mio tools install --format aab` 拉好。
+
+本地验证 AAB 需要先拆成 APK：
+
+```bash
+bundletool build-apks --bundle=build/mio/android/App-1.0.0.aab --output=app.apks --mode=universal
+```
+
 ## 下一步
 
 - [配置](/configuration) —— 应用、窗口、构建与签名的全部字段

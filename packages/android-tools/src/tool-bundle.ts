@@ -9,14 +9,15 @@ import { ProxyAgent, fetch as undiciFetch } from "undici";
 import { MioToolError } from "./errors.js";
 
 /**
- * A tool bundle ships two independently downloadable components:
+ * A tool bundle ships three independently downloadable components:
  *
- * - `tools`: apksigner.jar + zipalign[.exe] (~1.5 MB)
- * - `jre`:   a jlink-trimmed Java runtime with java.base + java.logging (~18 MB)
+ * - `tools`:  apksigner.jar + zipalign[.exe] (~1.5 MB)
+ * - `jre`:    a jlink-trimmed Java runtime with java.base + java.logging (~18 MB)
+ * - `bundle`: aapt2 + bundletool.jar, only needed when building an AAB (~37 MB)
  *
- * A machine that already has Java only needs `tools`, and one that has the
- * Android build-tools only needs `jre`. The installer never re-downloads a
- * component whose digest still matches.
+ * A machine that already has Java only needs `tools`, one that has the Android
+ * build-tools only needs `jre`, and APK-only builds never fetch `bundle`. The
+ * installer never re-downloads a component whose digest still matches.
  */
 
 export interface ToolBundleComponent {
@@ -33,6 +34,8 @@ export interface ToolBundleComponent {
 export interface ToolBundlePlatform {
   tools?: ToolBundleComponent;
   jre?: ToolBundleComponent;
+  /** aapt2 + bundletool.jar, required for AAB output only. */
+  bundle?: ToolBundleComponent;
 }
 
 export interface ToolBundleManifest {
@@ -41,7 +44,7 @@ export interface ToolBundleManifest {
   bundles: Record<string, { platforms: Record<string, ToolBundlePlatform> }>;
 }
 
-export type ToolComponent = "tools" | "jre";
+export type ToolComponent = "tools" | "jre" | "bundle";
 
 export interface InstallToolBundleOptions {
   /** Manifest object, local path, or http(s)/file URL. */
@@ -197,6 +200,12 @@ async function readMarker(path: string): Promise<CacheMarker | undefined> {
 }
 
 async function componentPresent(dir: string, component: ToolComponent): Promise<boolean> {
+  if (component === "bundle") {
+    const aapt2 = process.platform === "win32"
+      ? [join(dir, "aapt2.exe"), join(dir, "bin", "aapt2.exe")]
+      : [join(dir, "aapt2"), join(dir, "bin", "aapt2")];
+    return (await anyExists(aapt2)) && (await exists(join(dir, "bundletool.jar")));
+  }
   if (component === "tools") {
     const jar = [join(dir, "apksigner.jar"), join(dir, "lib", "apksigner.jar")];
     const align =
@@ -304,11 +313,16 @@ export async function installToolBundle(
       continue;
     }
 
-    const target = component === "tools" ? join(dest, "tools-root") : join(dest, "jre");
+    const target =
+      component === "tools"
+        ? join(dest, "tools-root")
+        : component === "bundle"
+          ? join(dest, "bundle-root")
+          : join(dest, "jre");
     log(`downloading ${component} (${source.url})`);
     await extractComponent(source, proxy, target);
 
-    if (component === "tools") {
+    if (component === "tools" || component === "bundle") {
       // Move everything (binary, jar, lib64/) into the bundle root so the
       // zipalign binary keeps its shared libraries next to it.
       for (const name of await readdir(target)) {

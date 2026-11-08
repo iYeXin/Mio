@@ -110,6 +110,9 @@ jobs:
 
   tools:
     name: Build tool bundle (${{ matrix.platform }})
+    env:
+      BUNDLETOOL_VERSION: "1.18.3"
+      BUNDLETOOL_SHA256: a099cfa1543f55593bc2ed16a70a7c67fe54b1747bb7301f37fdfd6d91028e29
     strategy:
       fail-fast: false
       matrix:
@@ -206,13 +209,43 @@ jobs:
 
           tar -czf "mio-tools-$PLATFORM-tools.tar.gz" -C staging/tools .
           "$JAVA_HOME/bin/jlink" --module-path "$JAVA_HOME/jmods" \
-            --add-modules java.base,java.logging,jdk.crypto.ec --strip-debug --no-man-pages \
+            --add-modules java.base,java.logging,jdk.crypto.ec,jdk.jartool --strip-debug --no-man-pages \
             --no-header-files --compress=zip-6 --output staging/jre
           tar -czf "mio-tools-$PLATFORM-jre.tar.gz" -C staging/jre .
-          node scripts/write-tools-fragment.mjs --platform "$PLATFORM" \
-            --tools "mio-tools-$PLATFORM-tools.tar.gz" \
-            --jre "mio-tools-$PLATFORM-jre.tar.gz" \
-            --out "manifest-$PLATFORM.json"
+
+          # AAB builds additionally need aapt2 + bundletool. arm64 Linux has no
+          # x86_64 Android SDK, so that platform ships without the component.
+          BUNDLE_ARCHIVE=""
+          AAPT2="$ALIGN_DIR/aapt2"
+          [ -f "$AAPT2" ] || AAPT2="$ALIGN_DIR/aapt2.exe"
+          if [ -f "$AAPT2" ]; then
+            mkdir -p staging/bundle
+            cp "$AAPT2" staging/bundle/
+            curl -sSL -o staging/bundle/bundletool.jar \
+              "https://github.com/google/bundletool/releases/download/$BUNDLETOOL_VERSION/bundletool-all-$BUNDLETOOL_VERSION.jar"
+            ACTUAL="$(node -e "const c=require('node:crypto'),f=require('node:fs');console.log(c.createHash('sha256').update(f.readFileSync(process.argv[1])).digest('hex'))" staging/bundle/bundletool.jar)"
+            if [ "$ACTUAL" != "$BUNDLETOOL_SHA256" ]; then
+              echo "::error::bundletool checksum mismatch"
+              exit 1
+            fi
+            BUNDLE_ARCHIVE="mio-tools-$PLATFORM-bundle.tar.gz"
+            tar -czf "$BUNDLE_ARCHIVE" -C staging/bundle .
+          else
+            echo "no aapt2 for $PLATFORM: AAB builds are not available on this platform"
+          fi
+
+          if [ -n "$BUNDLE_ARCHIVE" ]; then
+            node scripts/write-tools-fragment.mjs --platform "$PLATFORM" \
+              --tools "mio-tools-$PLATFORM-tools.tar.gz" \
+              --jre "mio-tools-$PLATFORM-jre.tar.gz" \
+              --bundle "$BUNDLE_ARCHIVE" \
+              --out "manifest-$PLATFORM.json"
+          else
+            node scripts/write-tools-fragment.mjs --platform "$PLATFORM" \
+              --tools "mio-tools-$PLATFORM-tools.tar.gz" \
+              --jre "mio-tools-$PLATFORM-jre.tar.gz" \
+              --out "manifest-$PLATFORM.json"
+          fi
           ls -lh mio-tools-*.tar.gz manifest-*.json
       - uses: actions/upload-artifact@v4
         with:
@@ -220,6 +253,7 @@ jobs:
           path: |
             mio-tools-${{ matrix.platform }}-tools.tar.gz
             mio-tools-${{ matrix.platform }}-jre.tar.gz
+            mio-tools-${{ matrix.platform }}-bundle.tar.gz
             manifest-${{ matrix.platform }}.json
           if-no-files-found: error
 

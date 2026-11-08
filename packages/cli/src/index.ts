@@ -10,6 +10,7 @@ import { doctor } from "./doctor.js";
 import { keystoreCommand } from "./keystore-command.js";
 import { exists } from "./project.js";
 import { initProject, upgradeProject } from "./scaffold.js";
+import { toolsCommand } from "./tools-command.js";
 
 const HELP = `Mio — lightweight cross-platform app framework
 
@@ -20,6 +21,7 @@ Usage:
   mio build [--platform android|windows] [--skip-web] [--template <path>] [--config mio.config.json]
   mio dev --platform android|windows [--no-install] [--template <path>]
   mio keystore [--out <path>] [--alias <name>] [--dname <dn>] [--days <n>] [--force]
+  mio tools [install] [--platform android|windows|all] [--format aab] [--abi universal]
   mio doctor
 
 Examples:
@@ -41,6 +43,7 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
       config: { type: "string" },
       "skip-web": { type: "boolean" },
       "no-install": { type: "boolean" },
+      format: { type: "string" },
       out: { type: "string" },
       alias: { type: "string" },
       dname: { type: "string" },
@@ -92,6 +95,10 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
     }
     case "build": {
       const loaded = await loadConfig(process.cwd(), values.config);
+      const format = values.format ?? "apk";
+      if (format !== "apk" && format !== "aab") {
+        throw new Error(`Unknown --format: ${format} (expected apk or aab)`);
+      }
       if (values.abi) {
         const abi = values.abi;
         if (abi !== "universal" && abi !== "arm64" && abi !== "x64") {
@@ -102,8 +109,17 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
       const platforms = normalizePlatforms(values.platform);
       for (const platform of platforms) {
         if (platform === "android") {
-          const result = await buildAndroid({ loaded, skipWeb: values["skip-web"] ?? false, template: values.template });
-          console.log(`Android: ${result.output} (${formatBytes(result.size)}, verified=${result.verified})`);
+          const result = await buildAndroid({
+            loaded,
+            skipWeb: values["skip-web"] ?? false,
+            template: values.template,
+            format,
+          });
+          const kind = result.format === "aab" ? "Android bundle" : "Android";
+          console.log(`${kind}: ${result.output} (${formatBytes(result.size)}, verified=${result.verified})`);
+          if (result.format === "aab") {
+            console.log("Upload this .aab to Play Console; local test: bundletool build-apks");
+          }
         } else {
           const result = await buildWindows({ loaded, skipWeb: values["skip-web"] ?? false, template: values.template });
           console.log(`Windows: ${result.outputDir} (${formatBytes(result.size)})`);
@@ -131,6 +147,31 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
         validityDays: days,
         force: values.force ?? false,
         passwordEnv: values["password-env"],
+      });
+      return;
+    }
+    case "tools": {
+      const action = positionals[1] === "install" ? "install" : "status";
+      const platform = values.platform?.[0] ?? "android";
+      if (platform !== "android" && platform !== "windows" && platform !== "all") {
+        throw new Error(`Unknown --platform: ${platform} (expected android, windows or all)`);
+      }
+      const format = values.format ?? "apk";
+      if (format !== "apk" && format !== "aab") {
+        throw new Error(`Unknown --format: ${format} (expected apk or aab)`);
+      }
+      const abi = values.abi;
+      if (abi && abi !== "arm64" && abi !== "universal" && abi !== "x64") {
+        throw new Error(`Unknown --abi: ${abi} (expected arm64, universal or x64)`);
+      }
+      const hasConfig = await exists(join(process.cwd(), values.config ?? "mio.config.json"));
+      await toolsCommand({
+        action,
+        platform,
+        format,
+        abi: abi as "arm64" | "universal" | "x64" | undefined,
+        loaded: hasConfig ? await loadConfig(process.cwd(), values.config) : undefined,
+        cwd: process.cwd(),
       });
       return;
     }

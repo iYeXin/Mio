@@ -14,8 +14,13 @@ param(
   [string]$JdkHome = $env:JAVA_HOME,
   [string]$BuildTools,
   [string]$Out = "artifacts/tools",
-  [string]$PlatformKey
+  [string]$PlatformKey,
+  # Also build the AAB component (aapt2 + bundletool), used by --format aab.
+  [switch]$WithBundle
 )
+
+$BundletoolVersion = "1.18.3"
+$BundletoolSha256 = "a099cfa1543f55593bc2ed16a70a7c67fe54b1747bb7301f37fdfd6d91028e29"
 
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
@@ -63,7 +68,7 @@ tar -czf $toolsArchive -C "$stage/tools" .
 # jre: a trimmed runtime, ~30 MB on disk
 $jreDir = Join-Path $stage "jre"
 & $jlink --module-path (Join-Path $JdkHome "jmods") `
-  --add-modules java.base,java.logging,jdk.crypto.ec --strip-debug --no-man-pages --no-header-files `
+  --add-modules java.base,java.logging,jdk.crypto.ec,jdk.jartool --strip-debug --no-man-pages --no-header-files `
   --compress=zip-6 --output $jreDir
 if ($LASTEXITCODE -ne 0) { throw "jlink failed" }
 
@@ -75,28 +80,66 @@ function Get-Digest([string]$path) {
   (Get-FileHash -Path $path -Algorithm SHA256).Hash.ToLowerInvariant()
 }
 
+$bundleArchive = $null
+if ($WithBundle) {
+  $aapt2 = Join-Path $BuildTools "aapt2.exe"
+  if (-not (Test-Path $aapt2)) { $aapt2 = Join-Path $BuildTools "aapt2" }
+  if (-not (Test-Path $aapt2)) { throw "aapt2 not found under $BuildTools" }
+  $bundleStage = Join-Path $stage "bundle"
+  New-Item -ItemType Directory -Force $bundleStage | Out-Null
+  Copy-Item $aapt2 $bundleStage
+  $jar = Join-Path $outDir "bundletool-all-$BundletoolVersion.jar"
+  if (-not (Test-Path $jar)) {
+    $url = "https://github.com/google/bundletool/releases/download/$BundletoolVersion/bundletool-all-$BundletoolVersion.jar"
+    Write-Host "downloading $url"
+    $curlArgs = @("-sL", "--max-time", "600", "-o", $jar)
+    if ($env:HTTPS_PROXY) { $curlArgs = @("-sL", "--max-time", "600", "--proxy", $env:HTTPS_PROXY, "-o", $jar) }
+    curl.exe @curlArgs $url
+  }
+  $digest = (Get-FileHash $jar -Algorithm SHA256).Hash.ToLowerInvariant()
+  if ($digest -ne $BundletoolSha256) {
+    Remove-Item $jar -Force
+    throw "bundletool checksum mismatch: $digest"
+  }
+  Copy-Item $jar (Join-Path $bundleStage "bundletool.jar")
+  $bundleArchive = Join-Path $outDir "mio-tools-$PlatformKey-bundle.tar.gz"
+  Remove-Item $bundleArchive -Force -ErrorAction SilentlyContinue
+  tar -czf $bundleArchive -C $bundleStage .
+}
+
 $toolsSize = (Get-Item $toolsArchive).Length
 $jreSize = (Get-Item $jreArchive).Length
+$bundleSize = if ($bundleArchive) { (Get-Item $bundleArchive).Length } else { 0 }
+$platformEntry = [ordered]@{
+  tools = [ordered]@{
+    url    = ([uri]$toolsArchive).AbsoluteUri
+    sha256 = Get-Digest $toolsArchive
+    size   = $toolsSize
+    strip  = 0
+  }
+  jre   = [ordered]@{
+    url    = ([uri]$jreArchive).AbsoluteUri
+    sha256 = Get-Digest $jreArchive
+    size   = $jreSize
+    strip  = 0
+  }
+}
+if ($bundleArchive) {
+  $platformEntry["bundle"] = [ordered]@{
+    url    = ([uri]$bundleArchive).AbsoluteUri
+    sha256 = Get-Digest $bundleArchive
+    size   = $bundleSize
+    strip  = 0
+  }
+}
+
 $manifest = [ordered]@{
   schemaVersion = 2
   latest       = "1"
   bundles      = [ordered]@{
     "1" = [ordered]@{
       platforms = [ordered]@{
-        $PlatformKey = [ordered]@{
-          tools = [ordered]@{
-            url    = ([uri]$toolsArchive).AbsoluteUri
-            sha256 = Get-Digest $toolsArchive
-            size   = $toolsSize
-            strip  = 0
-          }
-          jre   = [ordered]@{
-            url    = ([uri]$jreArchive).AbsoluteUri
-            sha256 = Get-Digest $jreArchive
-            size   = $jreSize
-            strip  = 0
-          }
-        }
+        $PlatformKey = $platformEntry
       }
     }
   }

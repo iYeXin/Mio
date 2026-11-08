@@ -1,5 +1,6 @@
 import { MioToolError } from "./errors.js";
 import {
+  bundleComplete,
   describeMissing,
   inspectAndroidTools,
   statusComplete,
@@ -23,6 +24,8 @@ export interface EnsureAndroidToolsOptions {
   force?: boolean;
   /** Set false to fail instead of downloading (offline builds, tests). */
   allowDownload?: boolean;
+  /** AAB output also needs aapt2 + bundletool + jarsigner. */
+  needBundle?: boolean;
   log?: (message: string) => void;
 }
 
@@ -44,15 +47,19 @@ export async function ensureAndroidTools(
   options: EnsureAndroidToolsOptions,
 ): Promise<EnsureAndroidToolsResult> {
   const log = options.log ?? (() => {});
+  const needBundle = options.needBundle === true;
+  const complete = (status: Awaited<ReturnType<typeof inspectAndroidTools>>): boolean =>
+    statusComplete(status) && (!needBundle || bundleComplete(status));
+
   let status = await inspectAndroidTools();
-  if (statusComplete(status) && !options.force) {
+  if (complete(status) && !options.force) {
     return { tools: toolsFromStatus(status), installed: [], downloaded: false };
   }
 
   if (options.allowDownload === false) {
     throw new MioToolError(
       "ANDROID_TOOLS_NOT_FOUND",
-      `Android build tools are incomplete (${describeMissing(status)})`,
+      `Android build tools are incomplete (${describeMissing(status, { bundle: needBundle })})`,
       { details: "Downloading is disabled (MIO_NO_TOOL_DOWNLOAD); install them or allow downloads." },
     );
   }
@@ -60,28 +67,48 @@ export async function ensureAndroidTools(
   const needed: ToolComponent[] = [];
   if (!status.apksignerJar || !status.zipalign) needed.push("tools");
   if (!status.java) needed.push("jre");
+  if (needBundle && !bundleComplete(status)) needed.push("bundle");
   // A forced refresh reinstalls everything, even when the machine looks ready.
-  if (needed.length === 0) needed.push("tools", "jre");
+  if (needed.length === 0) {
+    needed.push("tools", "jre");
+    if (needBundle) needed.push("bundle");
+  }
 
-  log(`${describeMissing(status)}; fetching ${needed.join(" + ")}`);
+  log(`${describeMissing(status, { bundle: needBundle })}; fetching ${needed.join(" + ")}`);
 
-  const bundle = await installToolBundle({
-    manifest: options.manifest,
-    components: needed,
-    cacheDir: options.cacheDir,
-    proxy: options.proxy,
-    force: options.force,
-    log,
-  });
+  let bundle;
+  try {
+    bundle = await installToolBundle({
+      manifest: options.manifest,
+      components: needed,
+      cacheDir: options.cacheDir,
+      proxy: options.proxy,
+      force: options.force,
+      log,
+    });
+  } catch (error) {
+    if (
+      needBundle &&
+      error instanceof MioToolError &&
+      /no "bundle" component/i.test(error.message)
+    ) {
+      throw new MioToolError(
+        "BUNDLE_NOT_AVAILABLE",
+        `AAB builds are not available for ${process.platform}-${process.arch}`,
+        { details: "The tool bundle publishes aapt2/bundletool for Windows x64, Linux x64 and macOS arm64." },
+      );
+    }
+    throw error;
+  }
 
   status = await inspectAndroidTools({
     env: { ...process.env, MIO_ANDROID_TOOLS_DIR: bundle.dir },
   });
 
-  if (!statusComplete(status)) {
+  if (!statusComplete(status) || (needBundle && !bundleComplete(status))) {
     throw new MioToolError(
       "ANDROID_TOOLS_NOT_FOUND",
-      `Android build tools are still incomplete after installing the bundle (${describeMissing(status)})`,
+      `Android build tools are still incomplete after installing the bundle (${describeMissing(status, { bundle: needBundle })})`,
       { details: `bundle: ${bundle.dir}` },
     );
   }

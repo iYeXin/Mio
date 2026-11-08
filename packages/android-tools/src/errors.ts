@@ -15,7 +15,12 @@ export type MioToolErrorCode =
   | "KEYSTORE_EXISTS"
   | "BUNDLE_DOWNLOAD_FAILED"
   | "BUNDLE_CHECKSUM_FAILED"
-  | "BUNDLE_EXTRACT_FAILED";
+  | "BUNDLE_EXTRACT_FAILED"
+  | "BUNDLE_NOT_AVAILABLE"
+  | "AAPT2_FAILED"
+  | "BUNDLETOOL_FAILED"
+  | "JARSIGNER_NOT_FOUND"
+  | "JARSIGN_FAILED";
 
 export interface MioToolErrorOptions {
   cause?: unknown;

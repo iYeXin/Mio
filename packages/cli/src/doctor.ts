@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import {
+  bundleComplete,
   describeAndroidTools,
   describeMissing,
   inspectAndroidTools,
@@ -30,6 +31,9 @@ export async function doctor(loaded?: LoadedConfig): Promise<void> {
     console.log(`\nAndroid tools: incomplete (${describeMissing(status)})`);
     console.log("  missing parts are downloaded automatically on the first Android build");
   }
+  console.log(
+    `AAB builds: ${bundleComplete(status) ? "ready" : `incomplete (${describeMissing(status, { bundle: true })})`}`,
+  );
 
   const adb = findAdb();
   console.log(`adb: ${adb ?? "not found"}`);
