@@ -142,7 +142,7 @@ Java 运行时（约 18 MB），都没有则两份都下，合计约 19 MB。下
 
 ```bash
 export MIO_KS_PASS='<password>'          # PowerShell: $env:MIO_KS_PASS = "<password>"
-npx @iyexin/mio-cli keystore --out .mio/release.p12 --alias release \
+npx mio keystore --out .mio/release.p12 --alias release \
   --dname "CN=Your Name, O=Your Org, C=CN"
 ```
 

@@ -1,6 +1,6 @@
 {
   "name": "@iyexin/mio-api",
-  "version": "0.1.9",
+  "version": "0.1.10",
   "private": false,
   "type": "module",
   "description": "Typed Mio bridge API for web applications",

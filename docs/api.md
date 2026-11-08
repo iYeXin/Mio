@@ -454,12 +454,15 @@ Android 上 `windowApi` 返回 `supported: false`，动作调用会抛 `UNSUPPOR
 
 ## 返回键
 
-Android 的返回键由壳接管，顺序是：
+Android 的返回键由应用决定。壳只做三件事，顺序是：
 
-1. 页面监听 `app.backPressed`，在 400 ms 内调用 `app.consumeBack()` 表示自己处理了
-   （关闭弹窗、切回上一屏），壳不会再做任何事；
+1. 发 `app.backPressed`（带 `canGoBack`），页面在 400 ms 内调用 `app.consumeBack()`
+   即表示自己处理了（关闭弹窗、切回上一屏），壳不再做任何事；
 2. 页面没有处理时，如果当前地址不是应用入口，壳在 WebView 历史里后退；
-3. 已经在入口页时，第一次返回提示“再按一次退出”，2 秒内再按才真正退出。
+3. 两者都不成立，壳退出应用。
+
+框架本身不会弹“再按一次退出”之类的提示——需要的话由应用在 `app.backPressed` 里自己
+实现（提示、拦住返回、或调用 `app.quit()`）。
 
 ```ts
 Mio.on("app.backPressed", () => {

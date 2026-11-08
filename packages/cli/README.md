@@ -3,8 +3,10 @@
 Mio 应用 CLI。
 
 ```bash
-npx @iyexin/mio-cli create my-app
-npx @iyexin/mio-cli build --platform android
+npm install -D @iyexin/mio-cli
+npx mio create my-app
+cd my-app && npm install
+npm run build:android
 ```
 
 或全局安装后直接用 `mio`：
@@ -44,7 +46,7 @@ mio doctor
 生成应用 id 和 `.gitignore`。`create` 只写文件，不执行安装；装依赖由你自己做：
 
 ```bash
-npx @iyexin/mio-cli create my-app
+npx mio create my-app
 cd my-app && npm install
 ```
 

@@ -1,6 +1,6 @@
 import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
-import { MIO_API_PACKAGE, MIO_API_PACKAGE_VERSION } from "./constants.js";
+import { MIO_API_PACKAGE, MIO_API_PACKAGE_VERSION, MIO_CLI_VERSION } from "./constants.js";
 import {
   cliRoot,
   copyDirectory,
@@ -38,7 +38,9 @@ export async function createProject(options: CreateOptions): Promise<void> {
   const pkg = JSON.parse(await readFile(packagePath, "utf8")) as {
     name?: string;
     private?: boolean;
+    scripts?: Record<string, string>;
     dependencies?: Record<string, string>;
+    devDependencies?: Record<string, string>;
   };
   const projectName = safePackageName(basename(target));
   pkg.name = projectName;
@@ -46,6 +48,20 @@ export async function createProject(options: CreateOptions): Promise<void> {
   pkg.dependencies = {
     ...(pkg.dependencies ?? {}),
     [MIO_API_PACKAGE]: `^${MIO_API_PACKAGE_VERSION}`,
+  };
+  // The project owns its CLI version: `npm run dev` works without a global
+  // install, and the lockfile pins the toolchain.
+  pkg.devDependencies = {
+    ...(pkg.devDependencies ?? {}),
+    "@iyexin/mio-cli": `^${MIO_CLI_VERSION}`,
+  };
+  pkg.scripts = {
+    ...(pkg.scripts ?? {}),
+    dev: "mio dev --platform windows",
+    "dev:web": "vite",
+    "dev:android": "mio dev --platform android",
+    "build:windows": "mio build --platform windows",
+    "build:android": "mio build --platform android",
   };
   await writeJson(packagePath, pkg);
 
@@ -61,7 +77,7 @@ export async function createProject(options: CreateOptions): Promise<void> {
 
   await writeFile(
     join(target, ".gitignore"),
-    ["node_modules/", "dist/", "build/", ".mio/*.p12", "*.log", ""].join("\n"),
+    ["node_modules/", "dist/", "build/", "artifacts/", ".cache/", ".mio/*.p12", "*.log", ""].join("\n"),
     "utf8",
   );
 
@@ -70,7 +86,7 @@ export async function createProject(options: CreateOptions): Promise<void> {
   console.log("Next:");
   console.log(`  cd ${basename(target)}`);
   console.log("  npm install");
-  console.log(`  npx @iyexin/mio-cli dev --platform windows`);
+  console.log("  npm run dev");
 }
 
 async function firstExisting(candidates: string[]): Promise<string> {

@@ -175,7 +175,14 @@ jobs:
           ALIGN_DIR="$(dirname "$ALIGN")"
           for lib in $DEPS; do
             # Only libraries that ship with build-tools; system ones are assumed.
-            case "$lib" in "$ALIGN_DIR"/*) cp -L "$lib" staging/tools/lib64/ ;; esac
+            case "$lib" in
+              "$ALIGN_DIR"/*) cp -L "$lib" staging/tools/lib64/ ;;
+              @rpath/*)
+                # macOS: resolve @rpath/<name> against build-tools/lib64.
+                base="$(basename "$lib")"
+                [ -f "$ALIGN_DIR/lib64/$base" ] && cp -L "$ALIGN_DIR/lib64/$base" staging/tools/lib64/
+                ;;
+            esac
           done
           for lib in $EXTRA_LIBS; do
             case "$lib" in

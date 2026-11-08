@@ -10,13 +10,26 @@ Mio 是一个轻量的跨平台开发框架。你用熟悉的 Web 技术写界�
 - Android 签名需要 Java 与 Android 的签名/对齐工具；机器上没有时，首次构建会自动下载（约 19 MB），已有的部分会跳过
 - 只有想自己重新构建运行时（模板）时，才需要 Flutter 与对应的原生工具链
 
+## 安装 CLI
+
+在你想放项目的目录里安装 CLI，后续命令统一用 `npx mio`：
+
+```bash
+npm install -D @iyexin/mio-cli
+```
+
+也可以全局安装（`npm install -g @iyexin/mio-cli`），之后直接用 `mio`。
+
 ## 创建项目
 
 ```bash
-npx @iyexin/mio-cli create my-app
+npx mio create my-app
 cd my-app
 npm install
 ```
+
+`create` 会把 `@iyexin/mio-cli` 写进新项目的 devDependencies，并生成常用的 npm
+脚本，所以进入项目后 `npm run dev`、`npx mio build` 都能直接使用。
 
 生成的是一个普通的 Vite + TypeScript 项目，唯一的 Mio 依赖是 `@iyexin/mio-api`。
 可以像普通前端项目一样组织代码、加依赖、跑测试。
@@ -24,9 +37,11 @@ npm install
 ## 开发
 
 ```bash
-npx @iyexin/mio-cli dev --platform windows
-npx @iyexin/mio-cli dev --platform android
+npm run dev            # Windows
+npm run dev:android    # Android
 ```
+
+等价写法是 `npx mio dev --platform windows`。
 
 命令会启动 Vite，并把开发服务器接到 Mio 运行时上：改代码即时生效，桥、事件和原生能力
 与打包后一致。
@@ -34,9 +49,11 @@ npx @iyexin/mio-cli dev --platform android
 ## 构建
 
 ```bash
-npx @iyexin/mio-cli build --platform windows
-npx @iyexin/mio-cli build --platform android --abi arm64
+npm run build:windows
+npm run build:android
 ```
+
+需要指定 ABI 时用 `npx mio build --platform android --abi arm64`。
 
 产物：
 

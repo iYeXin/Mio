@@ -20,19 +20,15 @@
 ## 快速开始
 
 ```bash
-npx @iyexin/mio-cli create my-app
+npm install -D @iyexin/mio-cli
+npx mio create my-app
 cd my-app
 npm install
-npx @iyexin/mio-cli dev --platform windows   # 改代码即时生效
-npx @iyexin/mio-cli build --platform android # 产出 APK
+npm run dev            # Windows，改代码即时生效
+npm run build:android  # 产出 APK
 ```
 
-也可以全局安装：
-
-```bash
-npm install -g @iyexin/mio-cli
-mio create my-app
-```
+也可以全局安装（`npm install -g @iyexin/mio-cli`），之后直接用 `mio create`。
 
 `create` 生成的项目是一个普通 Vite + TypeScript 应用，只有一个依赖
 `@iyexin/mio-api`。构建产物在 `build/mio/`：
@@ -116,7 +112,7 @@ await Mio.nativeApi.start(lib, { tick: 250 }, (event, payload) => {
 
 ```bash
 ./scripts/build-templates.ps1            # 需要 Flutter、Android SDK、Visual Studio
-npx @iyexin/mio-cli build --template ./my-template.apk
+npx mio build --template ./my-template.apk
 ```
 
 ## 配置

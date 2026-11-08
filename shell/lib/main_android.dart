@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'dart:convert';
-import 'dart:ui' show PlatformDispatcher;
 
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:webview_flutter_android/webview_flutter_android.dart';
@@ -36,16 +35,13 @@ class MioAndroidApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       // The area behind the status bar is painted by the shell so
       // `platform.setSystemBars` works on Android 15+ (edge-to-edge).
-      home: Scaffold(
-        resizeToAvoidBottomInset: false,
-        body: ValueListenableBuilder<Color?>(
-          valueListenable: mioSystemBarColor,
-          builder: (context, color, child) => ColoredBox(
-            color: color ?? const Color(0xFFFFFFFF),
-            child: SafeArea(top: true, bottom: true, child: child!),
-          ),
-          child: _WebViewPage(runtime),
+      home: ValueListenableBuilder<Color?>(
+        valueListenable: mioSystemBarColor,
+        builder: (context, color, child) => ColoredBox(
+          color: color ?? const Color(0xFFFFFFFF),
+          child: SafeArea(top: true, bottom: true, child: child!),
         ),
+        child: _WebViewPage(runtime),
       ),
     );
   }
@@ -133,9 +129,6 @@ class _WebViewPageState extends State<_WebViewPage> with WidgetsBindingObserver 
 
   /// Back first asks the page, then walks WebView history, and only exits when
   /// there is nowhere left to go.
-  DateTime? _lastBack;
-  var _exitArmed = false;
-
   @override
   Future<bool> didPopRoute() async {
     try {
@@ -145,28 +138,20 @@ class _WebViewPageState extends State<_WebViewPage> with WidgetsBindingObserver 
     }
   }
 
+  /// Back is the app's decision: the page gets 400 ms to consume it, history
+  /// is walked only when the page moved away from its entry URL, and the shell
+  /// exits when neither happened. The framework adds no exit prompt of its own.
   Future<bool> _handleBack() async {
     final canGoBack = await _controller.canGoBack();
     if (await widget.runtime.api.requestBack(canGoBack: canGoBack)) return true;
 
-    // Walking history is only useful while the page is somewhere other than
-    // its entry URL; same-URL pushState entries belong to the page.
     final current = await _controller.currentUrl();
     final entry = widget.runtime.webUrl;
     if (canGoBack && current != null && !_sameEntry(current, entry)) {
       await _controller.goBack();
       return true;
     }
-
-    // At the root: require a second press instead of exiting on the first.
-    final now = DateTime.now();
-    if (_exitArmed && _lastBack != null && now.difference(_lastBack!) < const Duration(seconds: 2)) {
-      return false;
-    }
-    _exitArmed = true;
-    _lastBack = now;
-    _showExitHint();
-    return true;
+    return false;
   }
 
   bool _sameEntry(String current, String entry) {
@@ -176,19 +161,6 @@ class _WebViewPageState extends State<_WebViewPage> with WidgetsBindingObserver 
       return uri.replace(fragment: '').toString();
     }
     return normalize(current) == normalize(entry);
-  }
-
-  void _showExitHint() {
-    final zh = PlatformDispatcher.instance.locale.languageCode == 'zh';
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(
-        SnackBar(
-          content: Text(zh ? '再按一次退出' : 'Press back again to exit'),
-          duration: const Duration(seconds: 2),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
   }
 
   Future<void> _logDisplay() async {

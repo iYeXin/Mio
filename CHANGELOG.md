@@ -3,6 +3,16 @@
 本文件记录 Mio 的对外变更。版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)；
 `MIO_API_VERSION`（桥契约）与 CLI 版本分开演进，见 [docs/release.md](docs/release.md)。
 
+## 0.1.10 — 2026-11-08
+
+- **返回键完全交给应用**：框架不再弹“再按一次退出”的 SnackBar。页面在
+  `app.backPressed` 里决定是否 `app.consumeBack()`；没消费时按“历史后退 → 退出”走，
+  需要确认退出的应用自己实现提示；
+- 修复 macOS 工具包缺 `libc++.dylib`：`zipalign` 通过 `@rpath` 加载它，现在按依赖名
+  从 build-tools 的 `lib64` 里挑出来一起打包（仍不带 LLVM 库，包体约 1.5 MB）；
+- linux-x64 同样只带 `libc++.so`，包体 1.6 MB；
+- 文档改成先 `npm install -D @iyexin/mio-cli`，再用 `npx mio ...`；`create` 生成的
+  项目把 CLI 写进 devDependencies 并提供 `npm run dev` / `build:android` 等脚本。
 ## 0.1.9 — 2026-11-08
 
 - 工具包只打包 `zipalign` 真正需要的共享库，不再把整个 build-tools `lib64`
