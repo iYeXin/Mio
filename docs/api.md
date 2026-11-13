@@ -57,9 +57,28 @@ const unsubscribe = await Mio.on("app.lifecycle", (event) => {
 |---|---|
 | `platform.info()` | `{ os, osVersion, locale, processors, platform, abi }` |
 | `platform.display()` | `{ scaleFactor, bounds, workArea?, window? }`，尺寸为逻辑像素 |
-| `platform.setSystemBars({ statusBarColor?, statusBarIcons?, navigationBarColor?, navigationBarIcons? })` | Android 系统栏颜色与图标明暗；Android 15+ 走 edge-to-edge，由壳绘制状态栏底色 |
+| `platform.insets()` | 安全边距 `{ top, right, bottom, left }`（逻辑像素） |
+| `platform.setSystemBars({ statusBarColor?, statusBarIcons?, navigationBarColor?, navigationBarIcons? })` | Android 系统栏颜色与图标明暗 |
 | `platform.keepAwake(enabled)` | 保持屏幕常亮（Android、Windows） |
 | `platform.orientation(mode)` | 锁定方向：`auto` / `portrait` / `landscape`（Android） |
+
+## 安全边距
+
+应用默认占满整个窗口（Android 进入 edge-to-edge，内容延伸到状态栏、刘海和导航栏下方）。
+是否需要留出安全边距由页面自己决定：
+
+- `platform.insets()` 返回 `{ top, right, bottom, left }`，单位是逻辑像素；
+- 桥会在 `<html>` 上维护 `--mio-inset-top` / `--mio-inset-right` /
+  `--mio-inset-bottom` / `--mio-inset-left`，随旋转和刘海变化自动更新；
+- 也可以直接用 CSS `env(safe-area-inset-*)`，但页面需要在 viewport meta 里写
+  `viewport-fit=cover`。
+
+```css
+body {
+  padding-top: var(--mio-inset-top, env(safe-area-inset-top, 0px));
+  padding-bottom: var(--mio-inset-bottom, env(safe-area-inset-bottom, 0px));
+}
+```
 
 ## fs
 

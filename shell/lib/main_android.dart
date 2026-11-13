@@ -35,11 +35,13 @@ class MioAndroidApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       // The area behind the status bar is painted by the shell so
       // `platform.setSystemBars` works on Android 15+ (edge-to-edge).
+      // Edge-to-edge: the WebView owns the whole window. Pages choose whether
+      // to pad for the status bar / cutout with `platform.insets()`.
       home: ValueListenableBuilder<Color?>(
         valueListenable: mioSystemBarColor,
         builder: (context, color, child) => ColoredBox(
           color: color ?? const Color(0xFFFFFFFF),
-          child: SafeArea(top: true, bottom: true, child: child!),
+          child: child!,
         ),
         child: _WebViewPage(runtime),
       ),

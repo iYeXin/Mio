@@ -104,6 +104,7 @@
         ["platform.setSystemBars", "colors the Android status bar"],
         ["storage.request", "asks for gallery read permission"],
         ["media.saveImage", "writes a generated PNG into Pictures/Mio"],
+        ["platform.insets", "safe-area values and --mio-inset-* variables"],
       ];
 
       const list = document.getElementById("cases");
@@ -438,6 +439,17 @@
           } catch (error) {
             settle(19, false, String(error.message || error));
           }
+        }
+
+        try {
+          const insets = await window.Mio.invoke("platform.insets");
+          const topVar = getComputedStyle(document.documentElement)
+            .getPropertyValue("--mio-inset-top").trim();
+          settle(20, typeof insets.top === "number" && topVar.length > 0,
+            "top " + insets.top + "px · css " + (topVar || "unset") +
+            " · viewport " + window.innerWidth + "x" + window.innerHeight);
+        } catch (error) {
+          settle(20, false, String(error.message || error));
         }
 
         finish();

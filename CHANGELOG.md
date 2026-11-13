@@ -3,6 +3,14 @@
 本文件记录 Mio 的对外变更。版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)；
 `MIO_API_VERSION`（桥契约）与 CLI 版本分开演进，见 [docs/release.md](docs/release.md)。
 
+## 0.2.2 — 2026-11-13
+
+- **应用占满画面**：Android 常驻 edge-to-edge，WebView 延伸到状态栏、刘海和导航栏下方，
+  不再由壳统一加安全边距；
+- 新增 `platform.insets()`，并在 `<html>` 上维护 `--mio-inset-{top,right,bottom,left}`
+  CSS 变量（随旋转/刘海变化更新）；页面可以自行决定是否留边距，也可以继续用
+  `env(safe-area-inset-*)`；
+- `platform.display()` 的结果多了 `insets`。
 ## 0.2.1 — 2026-11-08
 
 - 模板改为按需下载：AAB 只取 universal，APK 只取配置的 ABI，Windows 模板单独取；

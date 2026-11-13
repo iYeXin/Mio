@@ -135,6 +135,29 @@ class MioApi with WidgetsBindingObserver {
     emit('app.lifecycle', {'state': state.name});
   }
 
+  @override
+  void didChangeMetrics() {
+    // Rotation and cutout changes; the page updates its safe-area variables.
+    emit('app.insets', _insets());
+  }
+
+  /// Safe-area insets in logical pixels (Android cutout/status/nav bars).
+  ///
+  /// The WebView fills the whole window; pages decide whether to respect these
+  /// values, either through the `--mio-inset-*` CSS variables or `env()`.
+  Map<String, double> _insets() {
+    final view = WidgetsBinding.instance.platformDispatcher.views.first;
+    final ratio = view.devicePixelRatio;
+    final padding = view.viewPadding;
+    double logical(num value) => (value / ratio * 10).round() / 10;
+    return <String, double>{
+      'top': logical(padding.top),
+      'right': logical(padding.right),
+      'bottom': logical(padding.bottom),
+      'left': logical(padding.left),
+    };
+  }
+
   Future<Object?> call(String method, Map<String, dynamic> params) async {
     if (method.startsWith('process.')) {
       return await _processCall(method, params);
@@ -192,6 +215,8 @@ class MioApi with WidgetsBindingObserver {
         return await _fitToWorkArea(params);
       case 'platform.display':
         return await _display();
+      case 'platform.insets':
+        return _insets();
       case 'platform.setSystemBars':
         return await _setSystemBars(params);
       case 'platform.keepAwake':
@@ -610,6 +635,7 @@ class MioApi with WidgetsBindingObserver {
         'width': logical.width.round(),
         'height': logical.height.round(),
       },
+      'insets': _insets(),
       'workArea': ?workArea,
       if (windowActions.supported)
         'window': await windowActions.getState(),

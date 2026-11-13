@@ -391,6 +391,35 @@
     });
   }
 
+  // The WebView fills the window; pages that want safe margins read these
+  // variables (or call platform.insets()). Updates on rotation/cutout changes.
+  function installInsets() {
+    if (window.__MIO_INSETS__) return;
+    window.__MIO_INSETS__ = true;
+    var root = document.documentElement;
+    root.classList.add("mio-edge-to-edge");
+    var sides = ["top", "right", "bottom", "left"];
+
+    function apply(insets) {
+      if (!insets) return;
+      for (var i = 0; i < sides.length; i++) {
+        var side = sides[i];
+        var value = typeof insets[side] === "number" ? insets[side] : 0;
+        root.style.setProperty("--mio-inset-" + side, value + "px");
+      }
+    }
+
+    function refresh() {
+      invoke("platform.insets").then(apply).catch(function () {});
+    }
+
+    refresh();
+    ready.then(refresh).catch(function () {});
+    on("app.insets", apply);
+    window.addEventListener("resize", refresh);
+    window.addEventListener("orientationchange", refresh);
+  }
+
   window.Mio = {
     __mio: true,
     apiVersion: boot.apiVersion || "1.0.0",
@@ -406,9 +435,13 @@
     once: once,
     blobUrl: blobUrl,
     readBlob: readBlob,
-    writeBlob: writeBlob
+    writeBlob: writeBlob,
+    insets: function () {
+      return invoke("platform.insets");
+    }
   };
 
   installDiagnostics();
+  installInsets();
   connect();
 })();
