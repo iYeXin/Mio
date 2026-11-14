@@ -3,6 +3,13 @@
 本文件记录 Mio 的对外变更。版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)；
 `MIO_API_VERSION`（桥契约）与 CLI 版本分开演进，见 [docs/release.md](docs/release.md)。
 
+## 0.2.4 — 未发布
+
+- **固定页面 origin**：本地服务端口改为按应用 id 派生（`http://127.0.0.1:<port>`），
+  同一应用每次启动的 origin 不变，localStorage / IndexedDB / Service Worker 不再丢失；
+  页面仍是 secure context，桥与页面同源；
+- 端口被占用时启动失败并提示，避免静默换端口导致存储再次失效；
+- 新增 `origin` 测试与 harness 检查（origin / isSecureContext / localStorage 持久化）。
 ## 0.2.3 — 2026-11-14
 
 - 修复 0.2.2 只去掉了外层 `SafeArea`、WebView 内部仍在 `SafeArea` 里导致页面没有真正铺满的问题；

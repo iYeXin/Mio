@@ -105,6 +105,7 @@
         ["storage.request", "asks for gallery read permission"],
         ["media.saveImage", "writes a generated PNG into Pictures/Mio"],
         ["platform.insets", "safe-area values and --mio-inset-* variables"],
+        ["origin", "stable per-app origin, secure context, localStorage"],
       ];
 
       const list = document.getElementById("cases");
@@ -450,6 +451,19 @@
             " · viewport " + window.innerWidth + "x" + window.innerHeight);
         } catch (error) {
           settle(20, false, String(error.message || error));
+        }
+
+        try {
+          const key = "mio-origin-probe";
+          const previous = window.localStorage.getItem(key);
+          window.localStorage.setItem(key, String(Date.now()));
+          const secure = window.isSecureContext;
+          const subtle = Boolean(window.crypto && window.crypto.subtle);
+          settle(21, secure && subtle,
+            location.origin + " · secure=" + secure + " · " +
+            (previous ? "localStorage persisted" : "first run"));
+        } catch (error) {
+          settle(21, false, String(error.message || error));
         }
 
         finish();

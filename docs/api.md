@@ -62,6 +62,18 @@ const unsubscribe = await Mio.on("app.lifecycle", (event) => {
 | `platform.keepAwake(enabled)` | 保持屏幕常亮（Android、Windows） |
 | `platform.orientation(mode)` | 锁定方向：`auto` / `portrait` / `landscape`（Android） |
 
+## 页面 origin
+
+生产构建的页面从固定的本地地址加载：`http://127.0.0.1:<port>`，端口由应用 id 派生，
+同一应用每次启动相同，不同应用不同。因此：
+
+- localStorage / IndexedDB / Cache Storage / Service Worker 在重启和应用更新后保留；
+- 页面是 secure context（`isSecureContext === true`），`crypto.subtle` 等 API 可用；
+- 页面和桥同源，没有 CORS 与混合内容的额外限制；
+- 端口被其它进程占用时启动失败并给出提示，而不是静默换端口（换端口会丢存储）。
+
+`mio dev` 是例外：页面来自 Vite dev server，origin 是开发服务器地址。
+
 ## 安全边距
 
 应用默认占满整个窗口（Android 进入 edge-to-edge，内容延伸到状态栏、刘海和导航栏下方）。

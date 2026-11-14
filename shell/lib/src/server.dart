@@ -9,6 +9,7 @@ import 'app_manifest.dart';
 import 'asar.dart';
 import 'atomic_file.dart';
 import 'http_range.dart';
+import 'origin.dart';
 
 class MioServer {
   MioServer({
@@ -24,20 +25,33 @@ class MioServer {
   final String? devUrl;
 
   HttpServer? _server;
+  String? _host;
   String? _token;
   String? _devOrigin;
   final Set<WebSocket> _sockets = <WebSocket>{};
   StreamSubscription<HttpRequest>? _subscription;
 
   int get port => _server?.port ?? 0;
+  String get host => _host ?? '127.0.0.1';
   String get token => _token ?? '';
   bool get isRunning => _server != null;
 
-  String get url => 'http://127.0.0.1:$port/';
+  String get url => 'http://$host:$port/';
 
+  /// Stable per-app origin (see origin.dart).
+  OriginTarget originTarget() => originTargetFor(manifest.id);
   Future<void> start() async {
     if (_server != null) return;
-    _server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    final target = originTarget();
+    try {
+      _server = await HttpServer.bind(InternetAddress(target.host), target.port);
+    } on SocketException catch (error) {
+      throw StateError(
+        'Mio could not bind its local origin ${target.host}:${target.port}: '
+        '${error.message}. Another process is using that address; close it and retry.',
+      );
+    }
+    _host = target.host;
     _token = _randomToken();
     if (devUrl != null) {
       _devOrigin = Uri.parse(devUrl!).origin;
