@@ -179,20 +179,18 @@ class _WebViewPageState extends State<_WebViewPage> with WidgetsBindingObserver 
 
   @override
   Widget build(BuildContext context) {
-    // The shell owns the window chrome: keep the page out from under the
-    // status and navigation bars instead of letting each app deal with it.
+    // Edge-to-edge: the page owns the whole window. Apps that want safe
+    // margins apply `--mio-inset-*` themselves.
     return Scaffold(
-      body: SafeArea(
-        child: Stack(
-          children: [
-            WebViewWidget(controller: _controller),
-            if (_loading)
-              const ColoredBox(
-                color: Color(0xffffffff),
-                child: Center(child: CircularProgressIndicator()),
-              ),
-          ],
-        ),
+      body: Stack(
+        children: [
+          WebViewWidget(controller: _controller),
+          if (_loading)
+            const ColoredBox(
+              color: Color(0xffffffff),
+              child: Center(child: CircularProgressIndicator()),
+            ),
+        ],
       ),
     );
   }
