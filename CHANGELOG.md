@@ -3,7 +3,7 @@
 本文件记录 Mio 的对外变更。版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)；
 `MIO_API_VERSION`（桥契约）与 CLI 版本分开演进，见 [docs/release.md](docs/release.md)。
 
-## 0.2.4 — 未发布
+## 0.2.4 — 2026-11-14
 
 - **固定页面 origin**：本地服务端口改为按应用 id 派生（`http://127.0.0.1:<port>`），
   同一应用每次启动的 origin 不变，localStorage / IndexedDB / Service Worker 不再丢失；
