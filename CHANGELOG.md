@@ -3,6 +3,13 @@
 本文件记录 Mio 的对外变更。版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)；
 `MIO_API_VERSION`（桥契约）与 CLI 版本分开演进，见 [docs/release.md](docs/release.md)。
 
+## 0.2.5 — 2026-11-15
+
+- 修复 `platform.setSystemBars` 无效/相反：图标明暗改用 `WindowInsetsController`
+  （`light` = 浅色图标，适合深色背景；之前语义写反了），Android 15+ 也能生效；
+- Android 15+ 强制 edge-to-edge，不再假装能改状态栏颜色：`statusBarColor` /
+  `navigationBarColor` 在 15+ 被忽略，方法返回 `{ icons, colors }` 说明实际生效的部分；
+- harness 的 `platform.setSystemBars` 检查改为显示 `icons` / `colors`。
 ## 0.2.4 — 2026-11-14
 
 - **固定页面 origin**：本地服务端口改为按应用 id 派生（`http://127.0.0.1:<port>`），

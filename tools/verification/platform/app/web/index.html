@@ -398,13 +398,14 @@
           settleState(17, "SKIP", "Android only", "wait");
         } else {
           try {
-            await window.Mio.invoke("platform.setSystemBars", {
+            const bars = await window.Mio.invoke("platform.setSystemBars", {
               statusBarColor: "#13120f",
               statusBarIcons: "light",
               navigationBarColor: "#13120f",
               navigationBarIcons: "light",
             });
-            settle(17, true, "status bar tinted");
+            settle(17, bars && bars.icons === true,
+              "icons=" + (bars && bars.icons) + " colors=" + (bars && bars.colors));
           } catch (error) {
             settle(17, false, String(error.message || error));
           }

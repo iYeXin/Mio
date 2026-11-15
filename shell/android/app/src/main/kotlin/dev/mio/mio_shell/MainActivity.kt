@@ -18,6 +18,7 @@ import android.provider.OpenableColumns
 import android.util.Base64
 import android.window.OnBackInvokedDispatcher
 import android.view.View
+import android.view.WindowInsetsController
 import android.view.WindowManager
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -197,40 +198,63 @@ class MainActivity : FlutterActivity() {
                     val navIcons = call.argument<String>("navigationBarIcons")
                     runOnUiThread {
                         try {
-                            // Android 15+ enforces edge-to-edge and ignores the
-                            // bar colors; go edge-to-edge and let Flutter paint
-                            // the area behind the status bar.
+                            // Icon appearance is reliable on every supported
+                            // version: `light` means light icons (dark
+                            // background), `dark` means dark icons.
+                            val applied = mutableMapOf<String, Any?>()
                             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                                window.setDecorFitsSystemWindows(false)
-                            }
-                            @Suppress("DEPRECATION")
-                            window.statusBarColor = Color.TRANSPARENT
-                            @Suppress("DEPRECATION")
-                            window.navigationBarColor = navColor?.let { Color.parseColor(it) } ?: Color.TRANSPARENT
-                            @Suppress("DEPRECATION")
-                            var flags = window.decorView.systemUiVisibility
-                            if (statusIcons != null) {
-                                flags = if (statusIcons == "light") {
-                                    flags or View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
-                                } else {
-                                    flags and View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR.inv()
+                                val controller = window.insetsController
+                                val mask =
+                                    WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS or
+                                        WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS
+                                var appearance = 0
+                                if (statusIcons == "dark") {
+                                    appearance =
+                                        appearance or WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS
                                 }
-                            }
-                            if (navIcons != null) {
-                                flags = if (navIcons == "light") {
-                                    flags or View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
-                                } else {
-                                    flags and View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR.inv()
+                                if (navIcons == "dark") {
+                                    appearance =
+                                        appearance or WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS
                                 }
+                                controller?.setSystemBarsAppearance(appearance, mask)
+                                applied["icons"] = controller != null
+                            } else {
+                                @Suppress("DEPRECATION")
+                                var flags = window.decorView.systemUiVisibility
+                                if (statusIcons != null) {
+                                    flags = if (statusIcons == "dark") {
+                                        flags or View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
+                                    } else {
+                                        flags and View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR.inv()
+                                    }
+                                }
+                                if (navIcons != null) {
+                                    flags = if (navIcons == "dark") {
+                                        flags or View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
+                                    } else {
+                                        flags and View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR.inv()
+                                    }
+                                }
+                                window.decorView.systemUiVisibility = flags
+                                applied["icons"] = true
                             }
-                            window.decorView.systemUiVisibility = flags
-                            result.success(null)
+
+                            // Android 15+ ignores bar colors (edge-to-edge is
+                            // enforced); the page paints the bar area instead.
+                            val colorsSupported = Build.VERSION.SDK_INT < 35
+                            if (colorsSupported) {
+                                @Suppress("DEPRECATION")
+                                statusColor?.let { window.statusBarColor = Color.parseColor(it) }
+                                @Suppress("DEPRECATION")
+                                navColor?.let { window.navigationBarColor = Color.parseColor(it) }
+                            }
+                            applied["colors"] = colorsSupported
+                            result.success(applied)
                         } catch (error: Exception) {
                             result.error("system_bars_failed", error.message, null)
                         }
                     }
                 }
-
                 "foreground.start" -> {
                     val title = call.argument<String>("title") ?: "Mio"
                     val text = call.argument<String>("text") ?: "Running"

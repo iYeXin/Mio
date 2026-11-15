@@ -58,7 +58,7 @@ const unsubscribe = await Mio.on("app.lifecycle", (event) => {
 | `platform.info()` | `{ os, osVersion, locale, processors, platform, abi }` |
 | `platform.display()` | `{ scaleFactor, bounds, workArea?, window? }`，尺寸为逻辑像素 |
 | `platform.insets()` | 安全边距 `{ top, right, bottom, left }`（逻辑像素） |
-| `platform.setSystemBars({ statusBarColor?, statusBarIcons?, navigationBarColor?, navigationBarIcons? })` | Android 系统栏颜色与图标明暗 |
+| `platform.setSystemBars({ statusBarColor?, statusBarIcons?, navigationBarColor?, navigationBarIcons? })` | Android 系统栏图标明暗；返回 `{ icons, colors }` |
 | `platform.keepAwake(enabled)` | 保持屏幕常亮（Android、Windows） |
 | `platform.orientation(mode)` | 锁定方向：`auto` / `portrait` / `landscape`（Android） |
 
@@ -91,6 +91,15 @@ body {
   padding-bottom: var(--mio-inset-bottom, env(safe-area-inset-bottom, 0px));
 }
 ```
+
+### 系统栏
+
+`statusBarIcons` / `navigationBarIcons`：`light` 表示浅色图标（适合深色背景），`dark` 表示
+深色图标（适合浅色背景）。
+
+Android 15+ 强制 edge-to-edge，`statusBarColor` / `navigationBarColor` 会被系统忽略，
+返回 `colors: false`；状态栏区域显示的是页面自己的背景，需要颜色的页面自行铺顶部区域。
+Android 14 及更早仍然应用颜色。图标明暗在所有支持的版本上生效（`icons: true`）。
 
 ## fs
 

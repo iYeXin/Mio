@@ -668,18 +668,21 @@ class MioApi with WidgetsBindingObserver {
       throw MioApiException('UNSUPPORTED', 'setSystemBars is Android only');
     }
     try {
-      await const MethodChannel('mio/runtime').invokeMethod<void>('setSystemBars', {
-        'statusBarColor': params['statusBarColor'],
-        'navigationBarColor': params['navigationBarColor'],
-        'statusBarIcons': params['statusBarIcons'],
-        'navigationBarIcons': params['navigationBarIcons'],
-      });
+      final applied = await const MethodChannel('mio/runtime').invokeMapMethod<String, Object?>(
+        'setSystemBars',
+        {
+          'statusBarColor': params['statusBarColor'],
+          'navigationBarColor': params['navigationBarColor'],
+          'statusBarIcons': params['statusBarIcons'],
+          'navigationBarIcons': params['navigationBarIcons'],
+        },
+      );
       final status = params['statusBarColor'];
       if (status is String) {
         final parsed = _parseColor(status);
         if (parsed != null) mioSystemBarColor.value = parsed;
       }
-      return null;
+      return applied ?? <String, Object?>{'icons': false, 'colors': false};
     } on PlatformException catch (error) {
       throw MioApiException('SHELL_ERROR', error.message ?? 'setSystemBars failed');
     }
