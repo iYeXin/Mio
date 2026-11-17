@@ -1,0 +1,106 @@
+name: Experimental template
+
+# 用未发布的 Flutter 渠道（默认 master）打一版实验模板，验证上游引擎改动对壳的实际影响。
+# 典型用途：flutter/flutter#195861 把 TLHC 平台视图（WebView）的帧提交推迟到主线程队列，
+# 这条只在 master 上，stable 3.47.x / 3.50.0 都还没有。
+#
+# 产物只是 workflow 工件，不会发布 Release、不会覆盖 `v<version>` 的正式模板，
+# 也不发 npm。本地拿它当显式模板构建即可：
+#
+#   gh run download <run-id> -R iYeXin/Mio -n android-experimental-templates -D /tmp/mio-exp
+#   MIO_ANDROID_TEMPLATE=/tmp/mio-exp/mio-shell-arm64.apk \
+#     MIO_ANDROID_TOOLS_DIR="$HOME/.mio/tools/android/1/linux-arm64" MIO_NO_TOOL_DOWNLOAD=1 \
+#     npx mio build --platform android
+#
+# 注意：这是 master 引擎，可能不稳定；只用于对比测试，别当发布版。
+on:
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: Flutter 渠道（master 含未发布改动）
+        type: choice
+        options:
+          - master
+          - beta
+          - stable
+        default: master
+      flutter_version:
+        description: 指定 Flutter 版本（留空则用渠道最新）
+        type: string
+        default: ""
+      label:
+        description: 模板版本标签，会写进 MIO_TEMPLATE_VERSION
+        type: string
+        default: "0.3.0-experimental"
+      abis:
+        description: 要构建的 ABI，逗号分隔（universal / arm64 / x64）
+        type: string
+        default: "arm64"
+
+permissions:
+  contents: read
+
+jobs:
+  android:
+    name: Build experimental Android templates
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: shell
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: ${{ inputs.channel }}
+          flutter-version: ${{ inputs.flutter_version }}
+          cache: true
+
+      - name: Show Flutter version
+        shell: bash
+        run: |
+          flutter --version | tee /tmp/flutter-version.txt
+          {
+            echo "### Flutter ${{ inputs.channel }} ${{ inputs.flutter_version }}"
+            echo '```'
+            cat /tmp/flutter-version.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - run: flutter pub get
+
+      - name: Build
+        shell: bash
+        env:
+          LABEL: ${{ inputs.label }}
+        run: |
+          set -euo pipefail
+          test -n "$LABEL" || LABEL="0.3.0-experimental"
+          IFS=',' read -ra LIST <<< "${{ inputs.abis }}"
+          for raw in "${LIST[@]}"; do
+            abi="$(echo "$raw" | xargs)"
+            case "$abi" in
+              universal) TARGETS="android-arm,android-arm64,android-x64" ;;
+              arm64) TARGETS="android-arm64" ;;
+              x64) TARGETS="android-x64" ;;
+              *) echo "::error::unknown abi '$abi'"; exit 1 ;;
+            esac
+            echo "::group::build $abi ($TARGETS)"
+            flutter build apk --release -t lib/main_android.dart \
+              --target-platform "$TARGETS" \
+              --dart-define=MIO_TEMPLATE_VERSION="$LABEL"
+            cp build/app/outputs/flutter-apk/app-release.apk "../mio-shell-$abi.apk"
+            echo "::endgroup::"
+          done
+          ls -lh ../mio-shell-*.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-experimental-templates
+          path: mio-shell-*.apk
+          if-no-files-found: error

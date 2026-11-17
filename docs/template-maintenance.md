@@ -56,6 +56,22 @@ git push --follow-tags
 - 单 ABI 模板必须真的包含 `arm64-v8a` / `x86_64`；不匹配会提示用哪个 `--target-platform` 重建；
 - 显式指定单个 APK 时，CLI 校验 zip 结构（`AndroidManifest.xml` + `libapp.so`）。
 
+## 实验模板（上游引擎对比）
+
+正式模板固定用 stable 渠道的 Flutter（见 `.github/workflows/release.yml`），
+但有些引擎性能改动只在 master 上。验证这类改动时用手动触发的
+`.github/workflows/experimental.yml`：
+
+- 输入 `channel`（默认 `master`）、可选的 `flutter_version`、`label`（写进
+  `MIO_TEMPLATE_VERSION`，便于在诊断里区分）和 `abis`（默认只打 `arm64`）；
+- 产物是 workflow 工件 `android-experimental-templates`，**不发布 Release、不发 npm**，
+  不会影响正式模板的 `v<version>` 资产；
+- 本地用它构建实验包：先 `gh run download <run-id> -R iYeXin/Mio -n
+  android-experimental-templates -D /tmp/mio-exp`，再设
+  `MIO_ANDROID_TEMPLATE=/tmp/mio-exp/mio-shell-arm64.apk` 跑 `mio build`；
+- master 引擎每夜在变，实验包只用于对比测试，确认收益后再等包含该改动的 stable
+  并把 `release.yml` 里的 `flutter-version` 提上去。
+
 ## Web 模板
 
 `templates/web` 是脚手架源；`packages/cli/templates/web` 是 CLI 内置副本（**这份入库**）。
