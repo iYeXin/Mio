@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -428,59 +429,72 @@ class MioApi with WidgetsBindingObserver {
     await SystemNavigator.pop();
   }
 
-  /// file_selector maps extensions to MIME types on Android; an extension the
-  /// platform MimeTypeMap does not know makes the picker throw before it opens.
-  /// Retry without the filter in that case and let the app validate the format.
-  Future<T> _pickWithFallback<T>(
-    List<XTypeGroup> groups,
-    Future<T> Function(List<XTypeGroup> groups) pick,
-  ) async {
-    try {
-      return await pick(groups);
-    } catch (_) {
-      final filtered = groups.length == 1 && groups.first.extensions != null;
-      if (!filtered) rethrow;
-      return await pick(const <XTypeGroup>[XTypeGroup(label: 'Files')]);
+  Directory get _importsDir => Directory(p.join(_fsRoot.path, 'imports'));
+
+  /// Copies a file returned by the platform picker into the app sandbox.
+  Future<File> _copyPickedFile(PlatformFile file, Directory directory) async {
+    await directory.create(recursive: true);
+    final safeName = file.name.replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '_');
+    final target = File(
+      p.join(directory.path, '${DateTime.now().millisecondsSinceEpoch}-$safeName'),
+    );
+    final source = file.path;
+    if (source != null && source.isNotEmpty) {
+      await File(source).copy(target.path);
+    } else {
+      await target.writeAsBytes(await file.readAsBytes(), flush: true);
     }
+    return target;
+  }
+
+  List<String>? _allowedExtensions(List<String>? extensions) {
+    if (extensions == null || extensions.isEmpty) return null;
+    return extensions.map((value) => value.replaceFirst('.', '')).toList();
   }
 
   Future<Object?> _openFile(Map<String, dynamic> params) async {
-    final extensions = _optionalStringList(params, 'extensions');
-    final groups = extensions == null || extensions.isEmpty
-        ? const <XTypeGroup>[XTypeGroup(label: 'Files')]
-        : <XTypeGroup>[
-            XTypeGroup(
-              label: 'Files',
-              extensions: extensions.map((value) => value.replaceFirst('.', '')).toList(),
-            ),
-          ];
-    final file = await _pickWithFallback(
-      groups,
-      (value) => openFile(acceptedTypeGroups: value),
-    );
-    if (file != null) _grantPath(file.path);
-    return file?.path;
+    final extensions = _allowedExtensions(_optionalStringList(params, 'extensions'));
+    try {
+      final file = await FilePicker.pickFile(
+        type: extensions == null ? FileType.any : FileType.custom,
+        allowedExtensions: extensions,
+      );
+      if (file == null) return null;
+      final target = await _copyPickedFile(file, _importsDir);
+      _grantPath(target.path);
+      return p.relative(target.path, from: _fsRoot.path).replaceAll('\\', '/');
+    } on PlatformException catch (error) {
+      throw MioApiException(
+        'DIALOG_FAILED',
+        error.message ?? 'Could not open the file picker',
+      );
+    }
   }
 
   Future<Object?> _openFiles(Map<String, dynamic> params) async {
-    final extensions = _optionalStringList(params, 'extensions');
-    final groups = extensions == null || extensions.isEmpty
-        ? const <XTypeGroup>[XTypeGroup(label: 'Files')]
-        : <XTypeGroup>[
-            XTypeGroup(
-              label: 'Files',
-              extensions: extensions.map((value) => value.replaceFirst('.', '')).toList(),
-            ),
-          ];
-    final files = await _pickWithFallback(
-      groups,
-      (value) => openFiles(acceptedTypeGroups: value),
-    );
-    for (final file in files) {
-      _grantPath(file.path);
+    final extensions = _allowedExtensions(_optionalStringList(params, 'extensions'));
+    try {
+      final files = await FilePicker.pickFiles(
+        type: extensions == null ? FileType.any : FileType.custom,
+        allowedExtensions: extensions,
+      );
+      final paths = <String>[];
+      for (final file in files) {
+        final target = await _copyPickedFile(file, _importsDir);
+        _grantPath(target.path);
+        paths.add(
+          p.relative(target.path, from: _fsRoot.path).replaceAll('\\', '/'),
+        );
+      }
+      return paths;
+    } on PlatformException catch (error) {
+      throw MioApiException(
+        'DIALOG_FAILED',
+        error.message ?? 'Could not open the file picker',
+      );
     }
-    return files.map((file) => file.path).toList();
   }
+
   Future<Object?> _saveFile(Map<String, dynamic> params) async {
     final suggestedName = _optionalString(params, 'suggestedName');
     final location = await getSaveLocation(suggestedName: suggestedName);

@@ -547,6 +547,7 @@ Promise 以 `MioError` 拒绝，带 `code`、`message`、`data`。`code` 是稳�
 | `NOTIFY_FAILED` | 通知发送失败 |
 | `MEDIA_FAILED` | 选择图片失败 |
 | `SAVE_FAILED` | 写入相册失败 |
+| `DIALOG_FAILED` | 系统文件选择器打开或返回失败 |
 | `STORAGE_DENIED` | 没有写入共享存储的权限 |
 | `STORAGE_ERROR` | 存储权限查询/申请失败 |
 | `FOREGROUND_FAILED` | 前台服务启动/停止失败 |

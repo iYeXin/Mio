@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import 'package:file_selector/file_selector.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 
@@ -194,82 +194,58 @@ class MioDeviceApi {
     }
   }
 
+  Future<File> _copyPickedImage(PlatformFile file, Directory directory) async {
+    await directory.create(recursive: true);
+    final safeName = file.name.replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '_');
+    final target = File(
+      p.join(directory.path, '${DateTime.now().millisecondsSinceEpoch}-$safeName'),
+    );
+    final source = file.path;
+    if (source != null && source.isNotEmpty) {
+      await File(source).copy(target.path);
+    } else {
+      await target.writeAsBytes(await file.readAsBytes(), flush: true);
+    }
+    return target;
+  }
+
+  Map<String, Object?> _describeImage(PlatformFile file, File target) {
+    return <String, Object?>{
+      'path': p
+          .relative(target.path, from: p.join(dataDir.path, 'app'))
+          .replaceAll('\\', '/'),
+      'name': file.name,
+      'mime': _mimeOf(target.path),
+      'size': target.lengthSync(),
+    };
+  }
+
   Future<Object?> _pickImage({int max = 1}) async {
     final directory = mediaDir;
     await directory.create(recursive: true);
-
-    if (platformName == 'android') {
-      try {
-        final result = await _channel.invokeMapMethod<String, Object?>(
-          'media.pickImage',
-          {'destination': directory.path},
-        );
-        if (result == null) return null;
-        return <String, Object?>{
-          'path': p.relative(
-            result['path']! as String,
-            from: p.join(dataDir.path, 'app'),
-          ).replaceAll('\\', '/'),
-          'name': result['name'],
-          'mime': result['mime'],
-          'size': result['size'],
-        };
-      } on PlatformException catch (error) {
-        throw MioApiException(
-          'MEDIA_FAILED',
-          error.message ?? 'Could not pick an image',
-          {'code': error.code},
-        );
-      }
-    }
-
-    if (platformName == 'windows') {
-      const group = XTypeGroup(
-        label: 'Images',
-        extensions: <String>['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp'],
-      );
-      final file = await openFile(acceptedTypeGroups: <XTypeGroup>[group]);
+    try {
+      final file = await FilePicker.pickFile(type: FileType.image);
       if (file == null) return null;
-      final target = File(p.join(directory.path, p.basename(file.path)));
-      await File(file.path).copy(target.path);
-      return <String, Object?>{
-        'path': p
-            .relative(target.path, from: p.join(dataDir.path, 'app'))
-            .replaceAll('\\', '/'),
-        'name': p.basename(target.path),
-        'mime': _mimeOf(target.path),
-        'size': await target.length(),
-      };
+      final target = await _copyPickedImage(file, directory);
+      return _describeImage(file, target);
+    } on PlatformException catch (error) {
+      throw MioApiException(
+        'MEDIA_FAILED',
+        error.message ?? 'Could not pick an image',
+        {'code': error.code},
+      );
     }
-
-    throw MioApiException(
-      'UNSUPPORTED',
-      'media.pickImage is not available on $platformName',
-    );
   }
 
   Future<Object?> _pickImages({int max = 0}) async {
-    if (platformName != 'android') {
-      throw MioApiException('UNSUPPORTED', 'media.pickImages is Android only');
-    }
     final directory = mediaDir;
     await directory.create(recursive: true);
     try {
-      final result = await _channel.invokeListMethod<Object?>(
-        'media.pickImages',
-        {'destination': directory.path, 'max': max},
-      );
+      final files = await FilePicker.pickFiles(type: FileType.image);
       final items = <Map<String, Object?>>[];
-      for (final item in result ?? const <Object?>[]) {
-        if (item is! Map) continue;
-        items.add(<String, Object?>{
-          'path': p
-              .relative(item['path']! as String, from: p.join(dataDir.path, 'app'))
-              .replaceAll('\\', '/'),
-          'name': item['name'],
-          'mime': item['mime'],
-          'size': item['size'],
-        });
+      for (final file in files) {
+        final target = await _copyPickedImage(file, directory);
+        items.add(_describeImage(file, target));
       }
       return items;
     } on PlatformException catch (error) {

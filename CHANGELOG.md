@@ -3,6 +3,14 @@
 本文件记录 Mio 的对外变更。版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)；
 `MIO_API_VERSION`（桥契约）与 CLI 版本分开演进，见 [docs/release.md](docs/release.md)。
 
+## 0.2.8 — 2026-11-17
+
+- `dialog.openFile()` / `dialog.openFiles()` 与 `media.pickImage(s)` 改用成熟的
+  `file_picker`（Android SAF / Windows 原生对话框），不再自己维护原生选择器，
+  也不依赖在部分设备上打不开的 `file_selector` 打开路径；
+- 选中的文件复制进应用沙箱后再返回路径，Android 上不再出现 `content://` 路径问题；
+- 新增错误码 `DIALOG_FAILED`，选择器启动失败时不再静默。
+
 ## 0.2.7 — 2026-11-17
 
 - **开屏图**：`window.splash` / `splashBackground` / `splashFit`。构建时把图片打进
