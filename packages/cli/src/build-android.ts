@@ -68,7 +68,7 @@ export async function buildAndroid(options: BuildAndroidOptions): Promise<BuildA
   const output = join(outputDir, `${safeName(config.app.name)}-${config.app.version}.${extension}`);
 
   try {
-    const asar = await createAppAsar({ webDir, output: asarPath, config });
+    const asar = await createAppAsar({ webDir, output: asarPath, config, projectDir });
 
     await injectApk({
       templateApk: template.path,

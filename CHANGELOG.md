@@ -3,6 +3,18 @@
 本文件记录 Mio 的对外变更。版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)；
 `MIO_API_VERSION`（桥契约）与 CLI 版本分开演进，见 [docs/release.md](docs/release.md)。
 
+## 0.2.7 — 2026-11-17
+
+- **开屏图**：`window.splash` / `splashBackground` / `splashFit`。构建时把图片打进
+  应用归档，启动时由壳直接显示，替换原来的白屏和 Material 转圈；不配置图片时用
+  `backgroundColor` 铺纯色；
+- **两阶段启动**：先读归档和清单并立刻显示开屏图，再绑定本地端口、创建 WebView。
+  开屏图在服务绑定与 WebView 加载期间保持，不会闪白；
+- **端口占用重试**：退出后立刻重开时旧进程可能还占着 origin 端口，绑定失败会等
+  500 ms 重试，最多 2 次（共 3 次尝试），期间保持开屏图；
+- WebView 与窗口背景改用 `window.backgroundColor`，减少页面首帧前的白闪；
+- 诊断日志改为批量上报（250 ms 或 40 行为一批），减少启动/运行时的 RPC 与磁盘写入。
+
 ## 0.2.6 — 2026-11-17
 
 - 补齐 `@iyexin/mio-api` 漏掉的 `platform.display()` / `platform.insets()` /

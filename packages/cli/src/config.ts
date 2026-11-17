@@ -1,5 +1,5 @@
-import { readFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { readFile, stat } from "node:fs/promises";
+import { extname, resolve } from "node:path";
 
 export type AndroidAbi = "universal" | "arm64" | "x64";
 
@@ -15,6 +15,15 @@ export interface MioConfig {
     height?: number;
     title?: string;
     backgroundColor?: string;
+    /**
+     * Splash image shown while the page loads. Relative to the project root;
+     * copied into the app archive at build time.
+     */
+    splash?: string;
+    /** Background behind the splash; defaults to `window.backgroundColor`. */
+    splashBackground?: string;
+    /** How the splash image fills the window. Default: `contain`. */
+    splashFit?: "contain" | "cover";
     /** Initial position; the window is centred when omitted. */
     x?: number;
     y?: number;
@@ -63,6 +72,9 @@ export interface LoadedConfig {
 
 const APP_ID = /^[a-zA-Z][a-zA-Z0-9_]*(\.[a-zA-Z][a-zA-Z0-9_]*)+$/;
 const ANDROID_ABIS: readonly AndroidAbi[] = ["universal", "arm64", "x64"];
+const SPLASH_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".webp"]);
+const COLOR_PATTERN = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/;
+const MAX_SPLASH_BYTES = 12 * 1024 * 1024;
 
 export async function loadConfig(
   projectDir: string,
@@ -104,6 +116,36 @@ export async function loadConfig(
     throw new Error(
       `Invalid android.abi: ${String(abi)} (expected one of ${ANDROID_ABIS.join(", ")})`,
     );
+  }
+  const splash = config.window?.splash;
+  if (splash !== undefined) {
+    if (typeof splash !== "string" || splash.trim().length === 0) {
+      throw new Error("Invalid window.splash: expected a file path");
+    }
+    const splashPath = resolve(projectDir, splash);
+    let info;
+    try {
+      info = await stat(splashPath);
+    } catch {
+      throw new Error(`window.splash does not exist: ${splashPath}`);
+    }
+    if (!info.isFile()) {
+      throw new Error(`window.splash is not a file: ${splashPath}`);
+    }
+    if (!SPLASH_EXTENSIONS.has(extname(splashPath).toLowerCase())) {
+      throw new Error("Invalid window.splash: expected .png, .jpg, .jpeg or .webp");
+    }
+    if (info.size > MAX_SPLASH_BYTES) {
+      throw new Error("Invalid window.splash: image is larger than 12 MB");
+    }
+    const fit = config.window?.splashFit;
+    if (fit !== undefined && fit !== "contain" && fit !== "cover") {
+      throw new Error('Invalid window.splashFit: expected "contain" or "cover"');
+    }
+    const background = config.window?.splashBackground;
+    if (background !== undefined && !COLOR_PATTERN.test(background)) {
+      throw new Error('Invalid window.splashBackground: expected #rgb, #rrggbb or #aarrggbb');
+    }
   }
   return { config, path, projectDir };
 }

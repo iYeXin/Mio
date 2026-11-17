@@ -14,6 +14,9 @@
     "width": 1100,
     "height": 780,
     "title": "Notes",
+    "backgroundColor": "#0f1115",
+    "splash": "splash.png",
+    "splashFit": "contain",
     "minWidth": 720,
     "minHeight": 480,
     "center": true,
@@ -59,12 +62,27 @@
 |---|---|---|
 | `width` / `height` | 1024 / 720 | 初始尺寸（逻辑像素） |
 | `title` | 应用名称 | 窗口标题，优先于 `app.name` |
+| `backgroundColor` | `#0f1115` | 窗口 / WebView 底色；页面首帧前、页面背景透明时露出的颜色 |
+| `splash` | — | 开屏图路径（相对项目根目录，支持 `.png` / `.jpg` / `.jpeg` / `.webp`）；构建时打进应用归档 |
+| `splashBackground` | 同 `backgroundColor` | 开屏图背后的底色 |
+| `splashFit` | `contain` | `contain` 完整显示，`cover` 铺满裁切 |
 | `x` / `y` | 居中 | 初始位置 |
 | `center` | `true` | 是否居中 |
 | `minWidth` / `minHeight` | — | 最小尺寸 |
 | `resizable` | `true` | 是否允许缩放 |
 | `decorations` | `true` | `false` 得到无边框窗口，可自绘标题栏 |
 | `alwaysOnTop` | `false` | 置顶 |
+
+### 开屏图
+
+```json
+{ "window": { "backgroundColor": "#0f1115", "splash": "splash.png", "splashFit": "cover" } }
+```
+
+开屏图在构建时复制进应用归档，启动时由壳直接显示：服务绑定、端口占用重试和
+WebView 加载期间都保持，页面加载完成后再切到页面；只要 `splashBackground`
+（或 `backgroundColor`）也可以，相当于纯色开屏，不会出现白屏或系统加载圈。
+图片建议不超过 12 MB。
 
 ## web
 

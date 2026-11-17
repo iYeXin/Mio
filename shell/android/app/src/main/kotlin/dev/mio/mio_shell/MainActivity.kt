@@ -113,11 +113,28 @@ class MainActivity : FlutterActivity() {
                     executor.execute {
                         try {
                             val output = File(dest)
-                            output.parentFile?.mkdirs()
-                            assets.open(asset).use { input ->
-                                output.outputStream().use { stream ->
-                                    input.copyTo(stream, 64 * 1024)
+                            // The archive only changes with the APK. Copying it on
+                            // every launch costs tens of milliseconds before the
+                            // first frame, so reuse the extracted copy until the
+                            // app version changes.
+                            val version = try {
+                                packageManager.getPackageInfo(packageName, 0).versionName ?: ""
+                            } catch (_: Exception) {
+                                ""
+                            }
+                            val marker = File("$dest.version")
+                            val cached = version.isNotEmpty() &&
+                                output.isFile &&
+                                output.length() > 0 &&
+                                runCatching { marker.readText() }.getOrNull() == version
+                            if (!cached) {
+                                output.parentFile?.mkdirs()
+                                assets.open(asset).use { input ->
+                                    output.outputStream().use { stream ->
+                                        input.copyTo(stream, 64 * 1024)
+                                    }
                                 }
+                                if (version.isNotEmpty()) marker.writeText(version)
                             }
                             runOnUiThread { result.success(dest) }
                         } catch (error: Exception) {

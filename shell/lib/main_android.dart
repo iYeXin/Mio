@@ -1,7 +1,9 @@
+import 'dart:async';
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'dart:convert';
 
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:webview_flutter_android/webview_flutter_android.dart';
@@ -10,11 +12,14 @@ import 'src/api.dart';
 import 'src/error_app.dart';
 import 'src/platform_android.dart';
 import 'src/runtime.dart';
+import 'src/splash.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   try {
-    final runtime = await MioRuntime.start(MioPlatformAndroid());
+    // Phase 1 only reads the archive and manifest, so the splash screen can be
+    // on screen while the server binds (and retries) and the WebView loads.
+    final runtime = await MioRuntime.prepare(MioPlatformAndroid());
     runApp(MioAndroidApp(runtime));
   } catch (error, stack) {
     runApp(MioFatalErrorApp(error: error, stack: stack));
@@ -26,7 +31,6 @@ class MioAndroidApp extends StatelessWidget {
 
   final MioRuntime runtime;
 
-
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
@@ -35,12 +39,11 @@ class MioAndroidApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       // The area behind the status bar is painted by the shell so
       // `platform.setSystemBars` works on Android 15+ (edge-to-edge).
-      // Edge-to-edge: the WebView owns the whole window. Pages choose whether
-      // to pad for the status bar / cutout with `platform.insets()`.
       home: ValueListenableBuilder<Color?>(
         valueListenable: mioSystemBarColor,
         builder: (context, color, child) => ColoredBox(
-          color: color ?? const Color(0xFFFFFFFF),
+          color: color ??
+              parseMioColor(runtime.manifest.backgroundColor, const Color(0xFFFFFFFF)),
           child: child!,
         ),
         child: _WebViewPage(runtime),
@@ -60,8 +63,13 @@ class _WebViewPage extends StatefulWidget {
 
 class _WebViewPageState extends State<_WebViewPage> with WidgetsBindingObserver {
   static const MethodChannel _channel = MethodChannel('mio/runtime');
-  late final WebViewController _controller;
+  WebViewController? _controller;
   var _loading = true;
+
+  Color get _background => parseMioColor(
+        widget.runtime.manifest.backgroundColor,
+        const Color(0xFFFFFFFF),
+      );
 
   @override
   void initState() {
@@ -70,9 +78,23 @@ class _WebViewPageState extends State<_WebViewPage> with WidgetsBindingObserver 
     AndroidWebViewController.enableDebugging(widget.runtime.api.devTools);
     WidgetsBinding.instance.addObserver(this);
     _channel.setMethodCallHandler(_onNativeCall);
-    _controller = WebViewController()
+    unawaited(_boot());
+  }
+
+  /// Binds the local origin first; the splash stays visible while [MioRuntime.serve]
+  /// retries a port the previous process may still be releasing.
+  Future<void> _boot() async {
+    try {
+      await widget.runtime.serve();
+    } catch (error, stack) {
+      if (mounted) runApp(MioFatalErrorApp(error: error, stack: stack));
+      return;
+    }
+    if (!mounted) return;
+
+    final controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
-      ..setBackgroundColor(const Color(0xffffffff))
+      ..setBackgroundColor(_background)
       ..setNavigationDelegate(
         NavigationDelegate(
           onPageStarted: (_) {
@@ -80,7 +102,8 @@ class _WebViewPageState extends State<_WebViewPage> with WidgetsBindingObserver 
           },
           onPageFinished: (_) {
             if (mounted) setState(() => _loading = false);
-            _logDisplay();
+            // Keep the first frame free of diagnostics I/O.
+            Future<void>.delayed(const Duration(seconds: 1), _logDisplay);
           },
           onWebResourceError: (error) {
             debugPrint('Mio WebView error: ${error.description}');
@@ -88,7 +111,8 @@ class _WebViewPageState extends State<_WebViewPage> with WidgetsBindingObserver 
           onNavigationRequest: _onNavigationRequest,
         ),
       );
-    _controller.loadRequest(Uri.parse(widget.runtime.webUrl));
+    setState(() => _controller = controller);
+    await controller.loadRequest(Uri.parse(widget.runtime.webUrl));
   }
 
   NavigationDecision _onNavigationRequest(NavigationRequest request) {
@@ -115,7 +139,6 @@ class _WebViewPageState extends State<_WebViewPage> with WidgetsBindingObserver 
     }
     return NavigationDecision.prevent;
   }
-
 
   Future<Object?> _onNativeCall(MethodCall call) async {
     if (call.method == 'backPressed') return await _handleBack();
@@ -144,13 +167,15 @@ class _WebViewPageState extends State<_WebViewPage> with WidgetsBindingObserver 
   /// is walked only when the page moved away from its entry URL, and the shell
   /// exits when neither happened. The framework adds no exit prompt of its own.
   Future<bool> _handleBack() async {
-    final canGoBack = await _controller.canGoBack();
+    final controller = _controller;
+    if (controller == null) return false;
+    final canGoBack = await controller.canGoBack();
     if (await widget.runtime.api.requestBack(canGoBack: canGoBack)) return true;
 
-    final current = await _controller.currentUrl();
+    final current = await controller.currentUrl();
     final entry = widget.runtime.webUrl;
     if (canGoBack && current != null && !_sameEntry(current, entry)) {
-      await _controller.goBack();
+      await controller.goBack();
       return true;
     }
     return false;
@@ -162,6 +187,7 @@ class _WebViewPageState extends State<_WebViewPage> with WidgetsBindingObserver 
       if (uri == null) return value;
       return uri.replace(fragment: '').toString();
     }
+
     return normalize(current) == normalize(entry);
   }
 
@@ -179,16 +205,21 @@ class _WebViewPageState extends State<_WebViewPage> with WidgetsBindingObserver 
 
   @override
   Widget build(BuildContext context) {
-    // Edge-to-edge: the page owns the whole window. Apps that want safe
-    // margins apply `--mio-inset-*` themselves.
+    final controller = _controller;
     return Scaffold(
+      backgroundColor: _background,
+      // Edge-to-edge: the page owns the whole window.
       body: Stack(
         children: [
-          WebViewWidget(controller: _controller),
+          if (controller != null) WebViewWidget(controller: controller),
           if (_loading)
-            const ColoredBox(
-              color: Color(0xffffffff),
-              child: Center(child: CircularProgressIndicator()),
+            Positioned.fill(
+              child: IgnorePointer(
+                child: MioSplash(
+                  manifest: widget.runtime.manifest,
+                  image: widget.runtime.splashBytes,
+                ),
+              ),
             ),
         ],
       ),

@@ -12,6 +12,7 @@ import 'src/app_manifest.dart';
 import 'src/error_app.dart';
 import 'src/platform_windows.dart';
 import 'src/runtime.dart';
+import 'src/splash.dart';
 import 'src/window_close_handler.dart';
 
 Future<void> main() async {
@@ -19,7 +20,7 @@ Future<void> main() async {
   await windowManager.ensureInitialized();
 
   try {
-    final runtime = await MioRuntime.start(MioPlatformWindows());
+    final runtime = await MioRuntime.prepare(MioPlatformWindows());
     final manifest = runtime.manifest;
 
     // Closing must run shutdown (sidecar cleanup) before the window goes away.
@@ -35,7 +36,7 @@ Future<void> main() async {
         title: manifest.title,
         center: manifest.center,
         alwaysOnTop: manifest.alwaysOnTop,
-        backgroundColor: Colors.transparent,
+        backgroundColor: parseMioColor(manifest.backgroundColor, Colors.transparent),
         skipTaskbar: false,
       ),
       () async {
@@ -141,6 +142,8 @@ class _WindowsWebViewPageState extends State<_WindowsWebViewPage> {
 
   Future<void> _initialize() async {
     try {
+      // Binds the origin first; the splash stays visible while it retries.
+      await widget.runtime.serve();
       await WebviewController.initializeEnvironment(
         userDataPath: p.join(widget.runtime.dataDir.path, 'webview2'),
       );
@@ -150,7 +153,7 @@ class _WindowsWebViewPageState extends State<_WindowsWebViewPage> {
       await _controller.setDefaultContextMenusEnabled(true);
       await _controller.setDevToolsEnabled(widget.runtime.api.devTools);
       await _controller.loadUrl(widget.runtime.webUrl);
-      unawaited(_logDisplay());
+      Future<void>.delayed(const Duration(seconds: 1), _logDisplay);
       if (mounted) setState(() => _initialized = true);
     } catch (error) {
       if (mounted) setState(() => _error = error);
@@ -199,7 +202,16 @@ class _WindowsWebViewPageState extends State<_WindowsWebViewPage> {
       );
     }
     if (!_initialized) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+      return Scaffold(
+        backgroundColor: parseMioColor(
+          widget.runtime.manifest.backgroundColor,
+          const Color(0xFF0F1115),
+        ),
+        body: MioSplash(
+          manifest: widget.runtime.manifest,
+          image: widget.runtime.splashBytes,
+        ),
+      );
     }
     return Scaffold(body: Webview(_controller));
   }

@@ -347,37 +347,61 @@
   function installDiagnostics() {
     if (window.__MIO_DIAGNOSTICS__) return;
     window.__MIO_DIAGNOSTICS__ = true;
-    var forwarding = false;
 
-    function forward(level, args) {
-      if (forwarding) return;
-      forwarding = true;
-      try {
-        var text = args
-          .map(function (value) {
-            if (typeof value === "string") return value;
-            if (value instanceof Error) return value.stack || value.message;
-            try {
-              return JSON.stringify(value);
-            } catch (_) {
-              return String(value);
-            }
-          })
-          .join(" ");
-        invoke("app.log", { level: level, message: text.slice(0, 4000) }).catch(function () {});
-      } catch (_) {
-        // Logging must never break the page.
-      } finally {
-        forwarding = false;
+    var queue = [];
+    var flushTimer = 0;
+
+    function format(args) {
+      return args
+        .map(function (value) {
+          if (typeof value === "string") return value;
+          if (value instanceof Error) return value.stack || value.message;
+          try {
+            return JSON.stringify(value);
+          } catch (_) {
+            return String(value);
+          }
+        })
+        .join(" ");
+    }
+
+    function flush() {
+      if (!queue.length) return;
+      var text = queue.join("\n").slice(0, 8000);
+      queue = [];
+      if (flushTimer) {
+        clearTimeout(flushTimer);
+        flushTimer = 0;
       }
+      invoke("app.log", { level: "info", message: text }).catch(function () {});
+    }
+
+    // Batch lines: one RPC and one append per burst instead of one per console
+    // call. Apps that log during startup would otherwise pay a round trip and
+    // a disk write for every message while the page is still painting.
+    function forward(level, args) {
+      queue.push("[" + level + "] " + format(args).slice(0, 2000));
+      if (queue.length >= 40) {
+        flush();
+        return;
+      }
+      if (!flushTimer) flushTimer = setTimeout(flush, 250);
     }
 
     ["log", "info", "warn", "error", "debug"].forEach(function (level) {
       var original = console[level];
       if (typeof original !== "function") return;
       console[level] = function () {
-        forward(level === "warn" ? "warn" : level === "error" ? "error" : level === "debug" ? "debug" : "info",
-          Array.prototype.slice.call(arguments));
+        forward(
+          level === "warn"
+            ? "warn"
+            : level === "error"
+              ? "error"
+              : level === "debug"
+                ? "debug"
+                : "info",
+          Array.prototype.slice.call(arguments),
+        );
         return original.apply(console, arguments);
       };
     });
@@ -388,6 +412,10 @@
     window.addEventListener("unhandledrejection", function (event) {
       var reason = event.reason;
       forward("error", ["unhandled rejection", reason && (reason.stack || reason.message) || String(reason)]);
+    });
+    window.addEventListener("pagehide", flush);
+    document.addEventListener("visibilitychange", function () {
+      if (document.visibilityState === "hidden") flush();
     });
   }
 

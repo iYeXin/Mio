@@ -1,7 +1,7 @@
 import { copyFile, cp, mkdir, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { extname, join, resolve } from "node:path";
 import { createPackage } from "@electron/asar";
 import type { MioConfig } from "./config.js";
 import { MIO_API_VERSION, MIO_CLI_VERSION } from "./constants.js";
@@ -10,6 +10,8 @@ export interface CreateAsarOptions {
   webDir: string;
   output: string;
   config: MioConfig;
+  /** Project root, used to resolve `window.splash`; required when it is set. */
+  projectDir?: string;
 }
 
 export interface CreateAsarResult {
@@ -21,6 +23,20 @@ export async function createAppAsar(options: CreateAsarOptions): Promise<CreateA
   const stage = await mkdtemp(join(tmpdir(), "mio-asar-"));
   try {
     await cp(options.webDir, stage, { recursive: true });
+
+    const backgroundColor = options.config.window?.backgroundColor ?? "#0f1115";
+    let splashEntry: string | undefined;
+    const splash = options.config.window?.splash;
+    if (splash) {
+      if (!options.projectDir) {
+        throw new Error("projectDir is required when window.splash is set");
+      }
+      const source = resolve(options.projectDir, splash);
+      splashEntry = `__mio__/splash${extname(source).toLowerCase()}`;
+      await mkdir(join(stage, "__mio__"), { recursive: true });
+      await copyFile(source, join(stage, splashEntry));
+    }
+
     const manifest = {
       id: options.config.app.id,
       name: options.config.app.name,
@@ -30,7 +46,14 @@ export async function createAppAsar(options: CreateAsarOptions): Promise<CreateA
         width: options.config.window?.width ?? 1024,
         height: options.config.window?.height ?? 720,
         title: options.config.window?.title ?? options.config.app.name,
-        backgroundColor: options.config.window?.backgroundColor ?? "#0f1115",
+        backgroundColor,
+        ...(splashEntry
+          ? {
+              splash: splashEntry,
+              splashBackground: options.config.window?.splashBackground ?? backgroundColor,
+              splashFit: options.config.window?.splashFit ?? "contain",
+            }
+          : {}),
         ...(options.config.window?.x !== undefined ? { x: options.config.window.x } : {}),
         ...(options.config.window?.y !== undefined ? { y: options.config.window.y } : {}),
         ...(options.config.window?.center === false ? { center: false } : {}),

@@ -230,3 +230,43 @@ test("mergeGitignore only appends missing rules", () => {
   assert.deepEqual(second.added, []);
   assert.equal(second.value, first.value);
 });
+test("createAppAsar bundles window.splash and records its fit", async () => {
+  const root = await mkdtemp(join(tmpdir(), "mio-splash-test-"));
+  try {
+    const web = join(root, "web");
+    await mkdir(web, { recursive: true });
+    await writeFile(join(web, "index.html"), "<!doctype html><title>t</title>");
+    await writeFile(join(root, "splash.png"), Buffer.from([1, 2, 3, 4]));
+
+    const asarPath = join(root, "app.asar");
+    await createAppAsar({
+      webDir: web,
+      output: asarPath,
+      projectDir: root,
+      config: {
+        app: MINIMAL_CONFIG.app,
+        window: {
+          ...MINIMAL_CONFIG.window,
+          splash: "splash.png",
+          splashBackground: "#112233",
+          splashFit: "cover",
+        },
+      },
+    });
+
+    const manifest = JSON.parse(
+      extractFile(asarPath, "mio-manifest.json").toString("utf8"),
+    ) as {
+      window: { splash: string; splashBackground: string; splashFit: string };
+    };
+    assert.equal(manifest.window.splash, "__mio__/splash.png");
+    assert.equal(manifest.window.splashBackground, "#112233");
+    assert.equal(manifest.window.splashFit, "cover");
+    assert.deepEqual(
+      extractFile(asarPath, "__mio__/splash.png"),
+      Buffer.from([1, 2, 3, 4]),
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});

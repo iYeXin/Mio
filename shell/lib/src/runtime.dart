@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
@@ -28,6 +29,7 @@ class MioRuntime {
     required this.api,
     required this.asar,
     required this.devUrl,
+    required this.splashBytes,
   });
 
   final MioPlatform platform;
@@ -38,9 +40,17 @@ class MioRuntime {
   final AsarArchive? asar;
   final String? devUrl;
 
+  /// Decoded bytes are left to the widget; null when the app has no splash.
+  final Uint8List? splashBytes;
+
   String get webUrl => devUrl == null ? server.url : server.devUrlWithBoot();
 
-  static Future<MioRuntime> start(MioPlatform platform) async {
+  /// Loads the app archive and manifest, but does not bind the local server yet.
+  ///
+  /// The UI can start with the splash screen immediately; [serve] finishes the
+  /// startup (server + window) and may retry when the previous instance is
+  /// still holding the origin port.
+  static Future<MioRuntime> prepare(MioPlatform platform) async {
     final support = await getApplicationSupportDirectory();
     final dataDir = Directory(p.join(support.path, 'mio'));
     await dataDir.create(recursive: true);
@@ -70,6 +80,16 @@ class MioRuntime {
       throw StateError(compatibility);
     }
 
+    Uint8List? splashBytes;
+    if (devUrl == null && asar != null && manifest.splash != null) {
+      try {
+        splashBytes = await asar.read(manifest.splash!);
+      } catch (_) {
+        // A missing or unreadable splash must never block startup.
+        splashBytes = null;
+      }
+    }
+
     final api = MioApi(
       manifest: manifest,
       dataDir: dataDir,
@@ -83,8 +103,6 @@ class MioRuntime {
       asar: asar,
       devUrl: devUrl,
     );
-    await server.start();
-    await platform.prepareWindow(manifest);
 
     return MioRuntime._(
       platform: platform,
@@ -94,7 +112,31 @@ class MioRuntime {
       api: api,
       asar: asar,
       devUrl: devUrl,
+      splashBytes: splashBytes,
     );
+  }
+
+  bool _served = false;
+  Future<void>? _serving;
+
+  /// Binds the local origin and prepares the window. Idempotent and safe to
+  /// call from the UI after the splash is already on screen.
+  Future<void> serve() {
+    if (_served) return Future<void>.value();
+    return _serving ??= _serve();
+  }
+
+  Future<void> _serve() async {
+    await server.start();
+    await platform.prepareWindow(manifest);
+    _served = true;
+  }
+
+  /// Prepare + serve in one call, kept for callers that do not need a splash.
+  static Future<MioRuntime> start(MioPlatform platform) async {
+    final runtime = await prepare(platform);
+    await runtime.serve();
+    return runtime;
   }
 
   Future<void> dispose() async {

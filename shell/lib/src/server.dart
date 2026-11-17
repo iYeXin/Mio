@@ -40,15 +40,30 @@ class MioServer {
 
   /// Stable per-app origin (see origin.dart).
   OriginTarget originTarget() => originTargetFor(manifest.id);
+  /// Retries after a short delay: when the user swipes the app away and
+  /// immediately reopens it, the old process may still be closing its socket.
+  static const int _bindAttempts = 3;
+  static const Duration _bindRetryDelay = Duration(milliseconds: 500);
+
   Future<void> start() async {
     if (_server != null) return;
     final target = originTarget();
-    try {
-      _server = await HttpServer.bind(InternetAddress(target.host), target.port);
-    } on SocketException catch (error) {
+    Object? lastError;
+    for (var attempt = 0; attempt < _bindAttempts; attempt++) {
+      try {
+        _server = await HttpServer.bind(InternetAddress(target.host), target.port);
+        break;
+      } on SocketException catch (error) {
+        lastError = error;
+        if (attempt == _bindAttempts - 1) break;
+        await Future<void>.delayed(_bindRetryDelay);
+      }
+    }
+    if (_server == null) {
+      final message = lastError is SocketException ? lastError.message : '$lastError';
       throw StateError(
         'Mio could not bind its local origin ${target.host}:${target.port}: '
-        '${error.message}. Another process is using that address; close it and retry.',
+        '$message. Another process is using that address; close it and retry.',
       );
     }
     _host = target.host;

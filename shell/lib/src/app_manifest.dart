@@ -9,6 +9,9 @@ class AppManifest {
     this.width = 1024,
     this.height = 720,
     this.backgroundColor = '#ffffff',
+    this.splash,
+    this.splashBackground,
+    this.splashFit = 'contain',
     this.requiredApiVersion,
     this.foregroundService = false,
     this.x,
@@ -30,6 +33,13 @@ class AppManifest {
   final int width;
   final int height;
   final String backgroundColor;
+
+  /// Path inside the app archive (e.g. `__mio__/splash.png`), or null.
+  final String? splash;
+  /// Background behind the splash; falls back to [backgroundColor].
+  final String? splashBackground;
+  /// `contain` or `cover`.
+  final String splashFit;
 
   /// Minimum Mio API the app was built against, e.g. "1.0.0".
   final String? requiredApiVersion;
@@ -81,6 +91,9 @@ class AppManifest {
       width: _positiveInt(windowMap['width'], fallback.width),
       height: _positiveInt(windowMap['height'], fallback.height),
       backgroundColor: _string(windowMap['backgroundColor'], fallback.backgroundColor),
+      splash: _optionalString(windowMap['splash']),
+      splashBackground: _optionalString(windowMap['splashBackground']),
+      splashFit: windowMap['splashFit'] == 'cover' ? 'cover' : 'contain',
       requiredApiVersion:
           requiresMap['apiVersion'] is String ? requiresMap['apiVersion'] as String : null,
       foregroundService: androidMap['foregroundService'] == true,
@@ -114,6 +127,9 @@ class AppManifest {
           'width': width,
           'height': height,
           'backgroundColor': backgroundColor,
+          if (splash != null) 'splash': splash,
+          if (splashBackground != null) 'splashBackground': splashBackground,
+          if (splash != null) 'splashFit': splashFit,
         },
         if (requiredApiVersion != null)
           'requires': {'apiVersion': requiredApiVersion},
@@ -122,6 +138,10 @@ class AppManifest {
 
   static String _string(Object? value, String fallback) {
     return value is String && value.trim().isNotEmpty ? value.trim() : fallback;
+  }
+
+  static String? _optionalString(Object? value) {
+    return value is String && value.trim().isNotEmpty ? value.trim() : null;
   }
 
   static int? _optionalInt(Object? value) {

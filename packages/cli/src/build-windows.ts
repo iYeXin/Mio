@@ -36,7 +36,7 @@ export async function buildWindows(options: BuildWindowsOptions): Promise<BuildW
   const injectedExe = join(temp, "injected.exe");
 
   try {
-    await createAppAsar({ webDir, output: asarPath, config });
+    await createAppAsar({ webDir, output: asarPath, config, projectDir });
     await rm(outputDir, { recursive: true, force: true });
     await cp(templateDir, outputDir, { recursive: true });
 
