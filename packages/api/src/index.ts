@@ -522,7 +522,7 @@ export const platform = {
    * ignores colors; the page background paints that area instead.
    */
   setSystemBars: (options: SystemBarOptions): Promise<SystemBarResult> =>
-    invoke("platform.setSystemBars", options),
+    invoke("platform.setSystemBars", { ...options }),
   /** Keeps the screen awake while the app runs (Android, Windows). */
   keepAwake: (enabled: boolean): Promise<void> =>
     invoke("platform.keepAwake", { enabled }),
