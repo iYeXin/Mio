@@ -113,20 +113,22 @@ class MainActivity : FlutterActivity() {
                     executor.execute {
                         try {
                             val output = File(dest)
-                            // The archive only changes with the APK. Copying it on
-                            // every launch costs tens of milliseconds before the
-                            // first frame, so reuse the extracted copy until the
-                            // app version changes.
-                            val version = try {
-                                packageManager.getPackageInfo(packageName, 0).versionName ?: ""
+                            // The CLI writes the archive hash next to the asset.
+                            // Reuse the extracted copy only when it matches that
+                            // hash; versionName is not enough because a rebuild
+                            // can change the content without changing the version.
+                            val expected = try {
+                                assets.open("mio/app.asar.sha256").bufferedReader().use {
+                                    it.readText().trim()
+                                }
                             } catch (_: Exception) {
                                 ""
                             }
-                            val marker = File("$dest.version")
-                            val cached = version.isNotEmpty() &&
+                            val marker = File("$dest.sha256")
+                            val cached = expected.isNotEmpty() &&
                                 output.isFile &&
                                 output.length() > 0 &&
-                                runCatching { marker.readText() }.getOrNull() == version
+                                runCatching { marker.readText().trim() }.getOrNull() == expected
                             if (!cached) {
                                 output.parentFile?.mkdirs()
                                 assets.open(asset).use { input ->
@@ -134,7 +136,7 @@ class MainActivity : FlutterActivity() {
                                         input.copyTo(stream, 64 * 1024)
                                     }
                                 }
-                                if (version.isNotEmpty()) marker.writeText(version)
+                                if (expected.isNotEmpty()) marker.writeText(expected)
                             }
                             runOnUiThread { result.success(dest) }
                         } catch (error: Exception) {

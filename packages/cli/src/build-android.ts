@@ -1,4 +1,5 @@
-import { mkdtemp, rm, stat } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import {
@@ -69,10 +70,12 @@ export async function buildAndroid(options: BuildAndroidOptions): Promise<BuildA
 
   try {
     const asar = await createAppAsar({ webDir, output: asarPath, config, projectDir });
+    const asarHash = createHash("sha256").update(await readFile(asarPath)).digest("hex");
 
     await injectApk({
       templateApk: template.path,
       asar: asarPath,
+      asarHash,
       output: unsigned,
       manifest: {
         packageName: config.app.id,

@@ -13,6 +13,8 @@ export interface InjectApkOptions {
   manifest: ManifestPatch;
   /** Optional source image used to replace the template's launcher icons. */
   icon?: string;
+  /** SHA-256 of app.asar, stored as `assets/mio/app.asar.sha256` for the shell cache. */
+  asarHash?: string;
 }
 
 export interface InjectApkResult {
@@ -51,6 +53,7 @@ export async function injectApk(options: InjectApkOptions): Promise<InjectApkRes
   const outputEntries = entries.filter((entry) => {
     if (SIGNATURE_ENTRY.test(entry.name)) return false;
     if (entry.name === "assets/mio/app.asar") return false;
+    if (entry.name === "assets/mio/app.asar.sha256") return false;
     return true;
   });
 
@@ -65,6 +68,14 @@ export async function injectApk(options: InjectApkOptions): Promise<InjectApkRes
     compress: true,
     mtime: new Date(0),
   });
+  if (options.asarHash) {
+    // Small sidecar so the shell can decide whether its extracted copy is stale
+    // without hashing the whole archive on every launch.
+    zip.addBuffer(Buffer.from(`${options.asarHash}\n`, "utf8"), "assets/mio/app.asar.sha256", {
+      compress: true,
+      mtime: new Date(0),
+    });
+  }
   zip.end();
 
   await pipeline(zip.outputStream, createWriteStream(options.output));

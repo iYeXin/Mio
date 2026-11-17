@@ -3,6 +3,14 @@
 本文件记录 Mio 的对外变更。版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)；
 `MIO_API_VERSION`（桥契约）与 CLI 版本分开演进，见 [docs/release.md](docs/release.md)。
 
+## 0.2.9 — 2026-11-17
+
+- **asar 缓存改为内容哈希**：构建时把 `app.asar` 的 SHA-256 写进
+  `assets/mio/app.asar.sha256`，壳只在哈希一致时复用已解压的副本。之前按
+  `versionName` 判断，同一个版本号重打包会继续用旧页面，改动看起来“没生效”；
+- `@iyexin/mio-android-tools` 的 `injectApk` 新增可选 `asarHash`，注入 APK 时一并写入
+  哈希 sidecar。
+
 ## 0.2.8 — 2026-11-17
 
 - `dialog.openFile()` / `dialog.openFiles()` 与 `media.pickImage(s)` 改用成熟的
