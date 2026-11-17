@@ -3,6 +3,17 @@
 本文件记录 Mio 的对外变更。版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)；
 `MIO_API_VERSION`（桥契约）与 CLI 版本分开演进，见 [docs/release.md](docs/release.md)。
 
+## 0.2.6 — 2026-11-17
+
+- 补齐 `@iyexin/mio-api` 漏掉的 `platform.display()` / `platform.insets()` /
+  `platform.setSystemBars()` 封装与类型（运行时与文档早就有这些方法）；
+- Android 启动时主动 `requestApplyInsets()`：只调用 `setDecorFitsSystemWindows(false)`
+  不会重新分发 insets，Flutter 的 `viewPadding` 在首帧可能是 0，导致
+  `platform.insets()` 在启动阶段返回全 0，要等键盘等事件后才正确；
+- `dialog.openFile()` / `dialog.openFiles()` 带上 `file_selector` 的扩展名过滤时，
+  Android 的 MimeTypeMap 不认识 `md`、`py` 这类扩展名会让选择器在启动前抛错；
+  失败时自动退回「所有文件」，格式交给应用校验。
+
 ## 0.2.5 — 2026-11-15
 
 - 修复 `platform.setSystemBars` 无效/相反：图标明暗改用 `WindowInsetsController`

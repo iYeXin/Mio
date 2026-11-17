@@ -428,6 +428,22 @@ class MioApi with WidgetsBindingObserver {
     await SystemNavigator.pop();
   }
 
+  /// file_selector maps extensions to MIME types on Android; an extension the
+  /// platform MimeTypeMap does not know makes the picker throw before it opens.
+  /// Retry without the filter in that case and let the app validate the format.
+  Future<T> _pickWithFallback<T>(
+    List<XTypeGroup> groups,
+    Future<T> Function(List<XTypeGroup> groups) pick,
+  ) async {
+    try {
+      return await pick(groups);
+    } catch (_) {
+      final filtered = groups.length == 1 && groups.first.extensions != null;
+      if (!filtered) rethrow;
+      return await pick(const <XTypeGroup>[XTypeGroup(label: 'Files')]);
+    }
+  }
+
   Future<Object?> _openFile(Map<String, dynamic> params) async {
     final extensions = _optionalStringList(params, 'extensions');
     final groups = extensions == null || extensions.isEmpty
@@ -438,7 +454,10 @@ class MioApi with WidgetsBindingObserver {
               extensions: extensions.map((value) => value.replaceFirst('.', '')).toList(),
             ),
           ];
-    final file = await openFile(acceptedTypeGroups: groups);
+    final file = await _pickWithFallback(
+      groups,
+      (value) => openFile(acceptedTypeGroups: value),
+    );
     if (file != null) _grantPath(file.path);
     return file?.path;
   }
@@ -453,7 +472,10 @@ class MioApi with WidgetsBindingObserver {
               extensions: extensions.map((value) => value.replaceFirst('.', '')).toList(),
             ),
           ];
-    final files = await openFiles(acceptedTypeGroups: groups);
+    final files = await _pickWithFallback(
+      groups,
+      (value) => openFiles(acceptedTypeGroups: value),
+    );
     for (final file in files) {
       _grantPath(file.path);
     }

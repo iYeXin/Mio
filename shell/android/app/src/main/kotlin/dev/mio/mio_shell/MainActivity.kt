@@ -63,6 +63,12 @@ class MainActivity : FlutterActivity() {
         @Suppress("DEPRECATION")
         window.navigationBarColor = Color.TRANSPARENT
 
+        // Toggling decor-fits does not re-dispatch window insets on its own.
+        // Without this request Flutter's viewPadding stays zero until some other
+        // event (for example the IME) triggers an insets pass, which made
+        // `platform.insets()` report zeros during startup.
+        window.decorView.post { window.decorView.requestApplyInsets() }
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             onBackInvokedDispatcher.registerOnBackInvokedCallback(
                 OnBackInvokedDispatcher.PRIORITY_DEFAULT,

@@ -58,6 +58,50 @@ export interface PlatformInfo {
   abi: string;
 }
 
+/** Safe-area insets in logical pixels (status bar, cutout, navigation bar). */
+export interface Insets {
+  top: number;
+  right: number;
+  bottom: number;
+  left: number;
+}
+
+export interface DisplayInfo {
+  scaleFactor: number;
+  /** Display size in logical pixels. */
+  bounds: {
+    width: number;
+    height: number;
+  };
+  insets: Insets;
+  /** Usable desktop area (Windows). */
+  workArea?: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  };
+  /** Current window state (Windows). */
+  window?: WindowState;
+}
+
+export interface SystemBarOptions {
+  /** `#RRGGBB` / `#AARRGGBB`; ignored on Android 15+. */
+  statusBarColor?: string;
+  /** `light` = light icons for a dark background, `dark` = dark icons. */
+  statusBarIcons?: "light" | "dark";
+  /** `#RRGGBB` / `#AARRGGBB`; ignored on Android 15+. */
+  navigationBarColor?: string;
+  navigationBarIcons?: "light" | "dark";
+}
+
+export interface SystemBarResult {
+  /** Whether the icon appearance was applied. */
+  icons: boolean;
+  /** False when the platform ignores bar colors (Android 15+). */
+  colors: boolean;
+}
+
 export interface AppPaths {
   /** Root of everything the app owns. */
   data: string;
@@ -464,6 +508,21 @@ export const app = {
 
 export const platform = {
   info: (): Promise<PlatformInfo> => invoke("platform.info"),
+  /** Display size, scale factor and the current safe-area insets. */
+  display: (): Promise<DisplayInfo> => invoke("platform.display"),
+  /**
+   * Safe-area insets in logical pixels. The runtime also keeps the
+   * `--mio-inset-{top,right,bottom,left}` CSS variables up to date, so most
+   * pages can just consume those instead of calling this on every resize.
+   */
+  insets: (): Promise<Insets> => invoke("platform.insets"),
+  /**
+   * Android system bar appearance: icon contrast (all supported versions) and
+   * bar colors (Android 14 and below). Android 15+ is always edge-to-edge and
+   * ignores colors; the page background paints that area instead.
+   */
+  setSystemBars: (options: SystemBarOptions): Promise<SystemBarResult> =>
+    invoke("platform.setSystemBars", options),
   /** Keeps the screen awake while the app runs (Android, Windows). */
   keepAwake: (enabled: boolean): Promise<void> =>
     invoke("platform.keepAwake", { enabled }),
