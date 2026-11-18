@@ -91,7 +91,10 @@ jobs:
               *) echo "::error::unknown abi '$abi'"; exit 1 ;;
             esac
             echo "::group::build $abi ($TARGETS)"
+            # master 会要求更高的 AGP / Gradle；实验模板只为验证引擎改动，
+            # 不追项目的构建插件版本，这里宽过依赖校验。
             flutter build apk --release -t lib/main_android.dart \
+              --android-skip-build-dependency-validation \
               --target-platform "$TARGETS" \
               --dart-define=MIO_TEMPLATE_VERSION="$LABEL"
             cp build/app/outputs/flutter-apk/app-release.apk "../mio-shell-$abi.apk"
