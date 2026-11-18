@@ -421,35 +421,108 @@
 
   // The WebView fills the window; pages that want safe margins read these
   // variables (or call platform.insets()). Updates on rotation/cutout changes.
-  function installInsets() {
-    if (window.__MIO_INSETS__) return;
-    window.__MIO_INSETS__ = true;
-    var root = document.documentElement;
-    root.classList.add("mio-edge-to-edge");
-    var sides = ["top", "right", "bottom", "left"];
+  var root = document.documentElement;
 
-    function apply(insets) {
-      if (!insets) return;
+  function setVar(name, value) {
+    // Re-writing an unchanged custom property still invalidates style and
+    // layout, and the IME dispatches a metrics snapshot on every frame.
+    if (root.style.getPropertyValue(name) === value) return;
+    root.style.setProperty(name, value);
+  }
+
+  /**
+   * Layout contract between the shell and the page.
+   *
+   * One snapshot carries everything a page needs to lay itself out: the visible
+   * size, the safe areas and the IME height. The variables below are the derived
+   * numbers, so pages do not repeat the "keyboard minus navigation bar" arithmetic
+   * that is easy to get wrong:
+   *
+   *   --mio-inset-*        safe areas (cutout, status bar, navigation bar)
+   *   --mio-ime-height     keyboard height, 0 when closed
+   *   --mio-ime-lift       how far a bottom-fixed element must move up when its
+   *                        own padding already covers the navigation bar
+   *   --mio-safe-bottom    everything the system covers at the bottom
+   *   --mio-viewport-*     visible size, IME excluded
+   */
+  function installViewport() {
+    if (window.__MIO_VIEWPORT__) return;
+    window.__MIO_VIEWPORT__ = true;
+    root.classList.add("mio-viewport");
+
+    // Coalesce to one write per frame: the IME dispatches a snapshot per frame
+    // while it animates, and a custom property write on <html> invalidates the
+    // style of the whole tree.
+    var queued = null;
+    var frame = 0;
+    function apply(viewport) {
+      if (!viewport) return;
+      queued = viewport;
+      if (frame) return;
+      frame = requestAnimationFrame(function () {
+        frame = 0;
+        var next = queued;
+        queued = null;
+        write(next);
+      });
+    }
+
+    function write(viewport) {
+      if (!viewport) return;
+      var insets = viewport.insets || {};
+      var ime = viewport.ime || {};
+      var sides = ["top", "right", "bottom", "left"];
+      var bottom = typeof insets.bottom === "number" && insets.bottom > 0 ? insets.bottom : 0;
+      var imeHeight = typeof ime.height === "number" && ime.height > 0 ? ime.height : 0;
       for (var i = 0; i < sides.length; i++) {
-        var side = sides[i];
-        var value = typeof insets[side] === "number" ? insets[side] : 0;
-        var next = value + "px";
-        // Writing an unchanged custom property still invalidates style/layout,
-        // and the IME dispatches metrics every animation frame.
-        if (root.style.getPropertyValue("--mio-inset-" + side) === next) continue;
-        root.style.setProperty("--mio-inset-" + side, next);
+        var value = insets[sides[i]];
+        setVar("--mio-inset-" + sides[i], (typeof value === "number" && value > 0 ? value : 0) + "px");
+      }
+      setVar("--mio-ime-height", imeHeight + "px");
+      setVar("--mio-ime-lift", Math.max(0, imeHeight - bottom) + "px");
+      setVar("--mio-safe-bottom", Math.max(imeHeight, bottom) + "px");
+      if (typeof viewport.width === "number") {
+        setVar("--mio-viewport-width", viewport.width + "px");
+      }
+      if (typeof viewport.height === "number") {
+        setVar("--mio-viewport-height", viewport.height + "px");
       }
     }
 
     function refresh() {
-      invoke("platform.insets").then(apply).catch(function () {});
+      invoke("platform.viewport").then(apply).catch(installBrowserViewport);
     }
 
     refresh();
     ready.then(refresh).catch(function () {});
-    on("app.insets", apply);
-    window.addEventListener("resize", refresh);
-    window.addEventListener("orientationchange", refresh);
+    on("app.viewport", apply);
+  }
+
+  /**
+   * Fallback for real browsers and for shells older than `platform.viewport`.
+   *
+   * Safe-area insets cannot be read from JS there, so the `--mio-inset-*`
+   * variables keep their `env()` fallback at the point of use; the IME and the
+   * visible height still work through `visualViewport`, which is exactly what a
+   * desktop browser and an adjustResize WebView provide.
+   */
+  var browserViewportInstalled = false;
+  function installBrowserViewport() {
+    if (browserViewportInstalled) return;
+    browserViewportInstalled = true;
+    var viewport = window.visualViewport;
+    if (!viewport) return;
+    function update() {
+      var ime = Math.max(0, window.innerHeight - viewport.height);
+      setVar("--mio-ime-height", ime.toFixed(2) + "px");
+      setVar("--mio-ime-lift", ime.toFixed(2) + "px");
+      setVar("--mio-safe-bottom", ime.toFixed(2) + "px");
+      setVar("--mio-viewport-height", viewport.height.toFixed(2) + "px");
+      setVar("--mio-viewport-width", viewport.width.toFixed(2) + "px");
+    }
+    update();
+    viewport.addEventListener("resize", update);
+    viewport.addEventListener("scroll", update);
   }
 
   window.Mio = {
@@ -467,40 +540,10 @@
     once: once,
     blobUrl: blobUrl,
     readBlob: readBlob,
-    writeBlob: writeBlob,
-    insets: function () {
-      return invoke("platform.insets");
-    }
+    writeBlob: writeBlob
   };
 
   installDiagnostics();
-  installInsets();
-
-  // The shell keeps the WebView at full size when the IME opens (adjustNothing):
-  // resizing the platform view on every animation frame is what made the page
-  // stutter. It sends the keyboard height instead, and the page makes room with
-  // this variable / event without touching the WebView itself.
-  function installKeyboard() {
-    if (window.__MIO_KEYBOARD__) return;
-    window.__MIO_KEYBOARD__ = true;
-    var root = document.documentElement;
-    root.classList.add("mio-keyboard-inset");
-
-    function apply(payload) {
-      var height = payload && typeof payload.height === "number" ? payload.height : 0;
-      if (!(height >= 0)) height = 0;
-      root.style.setProperty("--mio-keyboard-inset", height + "px");
-      try {
-        window.dispatchEvent(new CustomEvent("mio:keyboard", { detail: { height: height } }));
-      } catch (_) {
-        // Older WebViews without CustomEvent still get the CSS variable.
-      }
-    }
-
-    invoke("platform.keyboard").then(apply).catch(function () {});
-    on("app.keyboard", apply);
-  }
-
-  installKeyboard();
+  installViewport();
   connect();
 })();

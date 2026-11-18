@@ -56,8 +56,9 @@ const unsubscribe = await Mio.on("app.lifecycle", (event) => {
 | 方法 | 返回 |
 |---|---|
 | `platform.info()` | `{ os, osVersion, locale, processors, platform, abi }` |
-| `platform.display()` | `{ scaleFactor, bounds, workArea?, window? }`，尺寸为逻辑像素 |
-| `platform.insets()` | 安全边距 `{ top, right, bottom, left }`（逻辑像素） |
+| `platform.viewport()` | 视口快照 `{ width, height, insets, ime, scale }`，逻辑像素；见「视口与键盘」 |
+| `platform.display()` | 已弃用，用 `platform.viewport()`；`{ scaleFactor, bounds, workArea?, window? }` |
+| `platform.insets()` | 已弃用，用 `viewport().insets`；安全边距 `{ top, right, bottom, left }` |
 | `platform.setSystemBars({ statusBarColor?, statusBarIcons?, navigationBarColor?, navigationBarIcons? })` | Android 系统栏图标明暗；返回 `{ icons, colors }` |
 | `platform.keepAwake(enabled)` | 保持屏幕常亮（Android、Windows） |
 | `platform.orientation(mode)` | 锁定方向：`auto` / `portrait` / `landscape`（Android） |
@@ -74,23 +75,62 @@ const unsubscribe = await Mio.on("app.lifecycle", (event) => {
 
 `mio dev` 是例外：页面来自 Vite dev server，origin 是开发服务器地址。
 
-## 安全边距
+## 视口与键盘
 
 应用默认占满整个窗口（Android 进入 edge-to-edge，内容延伸到状态栏、刘海和导航栏下方）。
-是否需要留出安全边距由页面自己决定：
+窗口**不会**因为输入法弹出而改变大小（`adjustNothing`）——那会让平台视图每帧重排，正是
+键盘卡顿的来源。页面需要的信息由 `platform.viewport()` / `app.viewport` 一次给全：
 
-- `platform.insets()` 返回 `{ top, right, bottom, left }`，单位是逻辑像素；
-- 桥会在 `<html>` 上维护 `--mio-inset-top` / `--mio-inset-right` /
-  `--mio-inset-bottom` / `--mio-inset-left`，随旋转和刘海变化自动更新；
-- 也可以直接用 CSS `env(safe-area-inset-*)`，但页面需要在 viewport meta 里写
-  `viewport-fit=cover`。
-
-```css
-body {
-  padding-top: var(--mio-inset-top, env(safe-area-inset-top, 0px));
-  padding-bottom: var(--mio-inset-bottom, env(safe-area-inset-bottom, 0px));
+```js
+{
+  width: 412,           // 可见宽度（CSS px）
+  height: 780,          // 可见高度，已扣掉输入法（相当于浏览器的 visualViewport）
+  insets: { top: 24, right: 0, bottom: 16, left: 0 },  // 安全区，不含输入法
+  ime: { height: 300, visible: true },                 // 输入法高度，关闭时为 0
+  scale: 2.625          // devicePixelRatio
 }
 ```
+
+一个快照就够了：不再需要「安全区 + 键盘」两套通道自己组合，也没有「键盘高度要不要减掉
+导航栏」的歧义。
+
+桥同时把派生值写成 `<html>` 上的 CSS 变量，随视口变化自动更新（只在真正变化时写）：
+
+| 变量 | 含义 |
+|---|---|
+| `--mio-inset-top/right/bottom/left` | 安全区（刘海、状态栏、导航栏），单位 px |
+| `--mio-ime-height` | 输入法高度，关闭时 `0px` |
+| `--mio-ime-lift` | 底部元素需要上移的距离：`max(0, 输入法 - 导航栏)` |
+| `--mio-safe-bottom` | 底部被系统遮住的全部高度：`max(导航栏, 输入法)` |
+| `--mio-viewport-width/height` | 可见尺寸，已扣掉输入法 |
+
+怎么选：
+
+- 元素**自己已经**用 `--mio-inset-bottom` 留过安全区 → 用 `--mio-ime-lift` 上移，不要再用
+  `--mio-safe-bottom`，否则会把导航栏算两次；
+- 元素直接贴屏幕底部 → 用 `--mio-safe-bottom` 留白；
+- 列表/滚动容器的内容留白 → `--mio-ime-height` 或 `--mio-safe-bottom`。
+
+```css
+/* 固定在底部的输入区：安全区用 padding，键盘只做位移（合成器完成，不重排） */
+.composer {
+  position: fixed;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  padding-bottom: var(--mio-inset-bottom, env(safe-area-inset-bottom, 0px));
+  transform: translateY(calc(-1 * var(--mio-ime-lift, 0px)));
+  will-change: transform;
+}
+```
+
+注意 `padding` / `height` 不要跟着输入法变：那是布局，会重排；只有 `transform` 和
+`opacity` 是合成器动画。输入法收起时，壳和 `visualViewport` 的时序不同，所以**只认**
+`--mio-ime-lift` / `app.viewport`，不要再混用 `visualViewport` 的差值。
+
+在真实浏览器里（`mio dev` 的 web 预览，或没有视口桥的旧壳），bootstrap 退回到
+`visualViewport`：`--mio-ime-height` / `--mio-ime-lift` / `--mio-safe-bottom` 照常可用，
+但 JS 读不到安全区，`--mio-inset-*` 保持未设置，由使用处的 `env()` 兜底。
 
 ### 系统栏
 
@@ -482,6 +522,7 @@ Mio.on("app.backPressed", () => {
 |---|---|
 | `bridge.state` | `{ state: "connecting" \| "open" \| "closed" }` |
 | `app.lifecycle` | `{ state: "resumed" \| "inactive" \| "paused" \| "detached" \| ... }` |
+| `app.viewport` | `{ width, height, insets, ime, scale }`，视口真正变化时才发 |
 | `app.backPressed` | `{ canGoBack }` |
 | `http.request` | `{ id, method, path, query, headers, remote, bodyBase64 }` |
 | `http.progress` | `{ id, direction, received, total, ratio }`，约 120 ms 节流 |
@@ -571,7 +612,7 @@ Shell 启动时校验：主版本必须相同，运行时版本必须 ≥ 要求
 ## 边界
 
 - 文本走 JSON-RPC，二进制走 blob 端点；
-- 窗口尺寸和位置用逻辑像素，物理像素 = 逻辑值 × `platform.display().scaleFactor`；
+- 窗口尺寸和位置用逻辑像素，物理像素 = 逻辑值 × `platform.viewport().scale`；
 - `fs` 不跟随 symlink，不提供 watch；
 - blob 端点只绑定 `127.0.0.1`；
 - `processApi` 只支持 Windows；

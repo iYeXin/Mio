@@ -110,11 +110,8 @@ class MioApi with WidgetsBindingObserver {
     _eventSink?.call(name, data);
   }
 
-  /// Last keyboard height sent to the page, to avoid duplicate events.
-  double _lastKeyboard = 0;
-
-  /// Last safe-area insets sent to the page, to avoid duplicate events.
-  Map<String, double>? _lastInsets;
+  /// Last viewport snapshot sent to the page, to avoid duplicate events.
+  Map<String, Object?>? _lastViewport;
 
   Completer<bool>? _pendingBack;
 
@@ -144,53 +141,62 @@ class MioApi with WidgetsBindingObserver {
 
   @override
   void didChangeMetrics() {
-    // Rotation and cutout changes; the page updates its safe-area variables.
-    // Only when they actually changed: the IME animates by dispatching metrics
-    // every frame, and re-sending identical insets made the page rewrite its CSS
-    // variables (and reflow the whole app) on each of those frames.
-    final insets = _insets();
-    if (!_sameInsets(insets)) {
-      _lastInsets = insets;
-      emit('app.insets', insets);
-    }
-    // The window no longer resizes for the IME (adjustNothing), so the page needs
-    // the keyboard height to make room itself instead of relayouting the WebView.
-    final height = _keyboardHeight();
-    if ((height - _lastKeyboard).abs() > 0.5) {
-      _lastKeyboard = height;
-      emit('app.keyboard', {'height': height});
-    }
+    // Rotation, cutout and IME changes. The IME animates by dispatching metrics
+    // on every frame, and re-sending an unchanged snapshot made the page rewrite
+    // its CSS variables (and repaint the whole app) on each of those frames.
+    final viewport = _viewport();
+    if (_sameViewport(viewport)) return;
+    _lastViewport = viewport;
+    emit('app.viewport', viewport);
   }
 
-  bool _sameInsets(Map<String, double> next) {
-    final previous = _lastInsets;
-    if (previous == null || previous.length != next.length) {
-      return false;
+  bool _sameViewport(Map<String, Object?> next) {
+    final previous = _lastViewport;
+    if (previous == null) return false;
+    bool same(num a, num b) => (a - b).abs() < 0.1;
+    if (!same(previous['width'] as num, next['width'] as num)) return false;
+    if (!same(previous['height'] as num, next['height'] as num)) return false;
+    final previousInsets = previous['insets'] as Map<String, double>;
+    final nextInsets = next['insets'] as Map<String, double>;
+    for (final entry in nextInsets.entries) {
+      if (!same(previousInsets[entry.key]!, entry.value)) return false;
     }
-    for (final entry in next.entries) {
-      final value = previous[entry.key];
-      if (value == null || (value - entry.value).abs() > 0.01) {
-        return false;
-      }
-    }
-    return true;
+    final previousIme = previous['ime'] as Map<String, Object?>;
+    final nextIme = next['ime'] as Map<String, Object?>;
+    if (previousIme['visible'] != nextIme['visible']) return false;
+    return same(previousIme['height'] as num, nextIme['height'] as num);
   }
 
-  /// IME height in logical pixels; 0 when the keyboard is closed.
-  double _keyboardHeight() {
+  /// Viewport snapshot in logical pixels.
+  ///
+  /// This is the whole contract for layout: the page gets the safe areas, the
+  /// IME height and the visible size in one object, so it never has to combine
+  /// `insets` and a separate keyboard channel itself. `height` already excludes
+  /// the IME, matching a browser's `visualViewport`.
+  Map<String, Object?> _viewport() {
     final view = WidgetsBinding.instance.platformDispatcher.views.first;
     final ratio = view.devicePixelRatio == 0 ? 1.0 : view.devicePixelRatio;
-    final bottom = view.viewInsets.bottom / ratio;
-    return (bottom * 10).round() / 10;
+    double logical(num value) => (value / ratio * 10).round() / 10;
+    final ime = logical(view.viewInsets.bottom);
+    return <String, Object?>{
+      'width': logical(view.physicalSize.width),
+      'height': logical(
+        (view.physicalSize.height - view.viewInsets.bottom).clamp(0, double.infinity),
+      ),
+      'insets': _insets(),
+      'ime': <String, Object?>{'height': ime, 'visible': ime > 0},
+      'scale': ratio,
+    };
   }
 
-  /// Safe-area insets in logical pixels (Android cutout/status/nav bars).
+  /// Safe-area insets in logical pixels (cutout, status and navigation bars).
   ///
-  /// The WebView fills the whole window; pages decide whether to respect these
-  /// values, either through the `--mio-inset-*` CSS variables or `env()`.
+  /// The IME is deliberately not part of this: it is reported as
+  /// `viewport.ime` instead, because a keyboard and a system bar are different
+  /// things and the page has to treat them differently.
   Map<String, double> _insets() {
     final view = WidgetsBinding.instance.platformDispatcher.views.first;
-    final ratio = view.devicePixelRatio;
+    final ratio = view.devicePixelRatio == 0 ? 1.0 : view.devicePixelRatio;
     final padding = view.viewPadding;
     double logical(num value) => (value / ratio * 10).round() / 10;
     return <String, double>{
@@ -258,9 +264,10 @@ class MioApi with WidgetsBindingObserver {
         return await _fitToWorkArea(params);
       case 'platform.display':
         return await _display();
-      case 'platform.keyboard':
-        return <String, double>{'height': _keyboardHeight()};
+      case 'platform.viewport':
+        return _viewport();
       case 'platform.insets':
+        // Kept for pages built against 0.2.9; prefer platform.viewport.
         return _insets();
       case 'platform.setSystemBars':
         return await _setSystemBars(params);

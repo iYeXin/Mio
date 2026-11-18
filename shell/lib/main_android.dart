@@ -208,10 +208,11 @@ class _WebViewPageState extends State<_WebViewPage> with WidgetsBindingObserver 
     final controller = _controller;
     return Scaffold(
       backgroundColor: _background,
-      // The page draws its own keyboard inset (adjustNothing + platform.keyboard).
-      // Without this, Scaffold still shrinks its body by MediaQuery.viewInsets on
-      // every IME animation frame, which resizes the WebView platform view each
-      // frame and is what made the page stutter when the keyboard opened.
+      // The page lays itself out from `platform.viewport` (adjustNothing: the
+      // window never resizes for the IME). Without this, Scaffold still shrinks
+      // its body by MediaQuery.viewInsets on every IME animation frame, which
+      // resizes the WebView platform view each frame and is what made the page
+      // stutter when the keyboard opened.
       resizeToAvoidBottomInset: false,
       // Edge-to-edge: the page owns the whole window.
       body: Stack(

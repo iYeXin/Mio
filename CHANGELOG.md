@@ -5,18 +5,21 @@
 
 ## 0.2.10 — 2026-11-19
 
+- **新的视口契约 `platform.viewport()` / `app.viewport`**：一次返回 `{ width, height,
+  insets, ime, scale }`，`height` 已扣掉输入法（等同浏览器的 `visualViewport`），`insets`
+  只表示安全区，`ime` 只表示输入法。取代 0.2.9 里「安全区一套、键盘一套」的两条通道——
+  页面不再需要自己判断「键盘高度要不要减掉导航栏」；
+- bootstrap 把派生值写成 CSS 变量：`--mio-inset-*`、`--mio-ime-height`、
+  `--mio-ime-lift`（`max(0, 输入法 - 导航栏)`）、`--mio-safe-bottom`、
+  `--mio-viewport-*`，只在真正变化时写入；真实浏览器里退回 `visualViewport`；
 - **键盘不再挤压 WebView**：Android 的 `windowSoftInputMode` 改为 `adjustNothing`，
-  `Scaffold` 显式 `resizeToAvoidBottomInset: false`。之前键盘每帧都会改变 WebView
-  尺寸，页面跟着持续重排，输入法展开/收起时看起来很卡；现在 WebView 尺寸固定，键盘
-  只作为高度值交给页面自己处理；
-- 新增键盘桥 `app.keyboard` / `platform.keyboard()`：壳上报键盘高度（逻辑像素），
-  页面可以只做位移或局部布局，不必依赖 `visualViewport` 的时序（收起时它会晚几帧，
-  混用会出现“先抬一下再落下”）；
-- `packages/api` 的 bootstrap 把键盘高度写进 `--mio-keyboard-inset` 并派发
-  `mio:keyboard` 事件，同时给 `documentElement` 加 `mio-keyboard-inset` 标记，
-  页面据此判断是否有原生键盘数据；
-- **insets 去重**：`didChangeMetrics` 里只有安全区真正变化时才发送 `app.insets`，
-  避免键盘动画期间每帧重写一遍全页样式变量。
+  `Scaffold` 显式 `resizeToAvoidBottomInset: false`。键盘动画不再改变平台视图尺寸，
+  页面只做位移；
+- 壳在 `didChangeMetrics` 里对整份视口快照去重（0.1 px），避免输入法动画期间每帧
+  重写页面变量；
+- 移除 0.2.9 里刚加、未发布到稳定版的 `platform.keyboard` / `app.keyboard` /
+  `--mio-keyboard-inset` / `mio:keyboard`；`platform.insets()` 与 `platform.display()`
+  保留但标记弃用，改用 `platform.viewport()`。
 
 ## 0.2.9 — 2026-11-17
 

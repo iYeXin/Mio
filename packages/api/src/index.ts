@@ -66,6 +66,29 @@ export interface Insets {
   left: number;
 }
 
+/**
+ * Everything a page needs to lay itself out, in logical pixels.
+ *
+ * One snapshot instead of separate safe-area and keyboard channels: `height`
+ * already excludes the IME (like a browser's `visualViewport`), `insets` is the
+ * system safe area only, and `ime` is the keyboard. The runtime mirrors the
+ * derived numbers into CSS variables (`--mio-inset-*`, `--mio-ime-height`,
+ * `--mio-ime-lift`, `--mio-safe-bottom`, `--mio-viewport-*`), so most pages do
+ * not need to call this at all.
+ */
+export interface Viewport {
+  width: number;
+  height: number;
+  insets: Insets;
+  ime: {
+    /** Keyboard height; 0 when it is closed. */
+    height: number;
+    visible: boolean;
+  };
+  /** devicePixelRatio used to convert to logical pixels. */
+  scale: number;
+}
+
 export interface DisplayInfo {
   scaleFactor: number;
   /** Display size in logical pixels. */
@@ -508,21 +531,25 @@ export const app = {
 
 export const platform = {
   info: (): Promise<PlatformInfo> => invoke("platform.info"),
-  /** Display size, scale factor and the current safe-area insets. */
-  display: (): Promise<DisplayInfo> => invoke("platform.display"),
   /**
-   * Safe-area insets in logical pixels. The runtime also keeps the
-   * `--mio-inset-{top,right,bottom,left}` CSS variables up to date, so most
-   * pages can just consume those instead of calling this on every resize.
+   * Current viewport: visible size, safe-area insets and IME height in one
+   * object. `app.viewport` pushes the same snapshot whenever it changes, and the
+   * runtime mirrors it into CSS variables; use this for the initial read.
+   */
+  viewport: (): Promise<Viewport> => invoke("platform.viewport"),
+  /** `app.viewport`; fires only when the snapshot actually changed. */
+  onViewport: (handler: (viewport: Viewport) => void): Promise<() => void> =>
+    Mio.on("app.viewport", (data) => handler(data as Viewport)),
+  /**
+   * @deprecated Use `viewport().insets`; this is the safe area without the IME,
+   * which is exactly what `viewport().insets` already carries.
    */
   insets: (): Promise<Insets> => invoke("platform.insets"),
   /**
-   * IME height in logical pixels; 0 when the keyboard is closed. The shell keeps
-   * the WebView at full size while the keyboard animates, so pages make room for
-   * it themselves instead of relayouting the platform view every frame. The
-   * runtime mirrors it into `--mio-keyboard-inset` and emits `mio:keyboard`.
+   * @deprecated Use `viewport()` for size and `windowApi.state()` for window
+   * geometry. `display()` mixes screen bounds with a duplicate `insets` copy.
    */
-  keyboard: (): Promise<{ height: number }> => invoke("platform.keyboard"),
+  display: (): Promise<DisplayInfo> => invoke("platform.display"),
   /**
    * Android system bar appearance: icon contrast (all supported versions) and
    * bar colors (Android 14 and below). Android 15+ is always edge-to-edge and
