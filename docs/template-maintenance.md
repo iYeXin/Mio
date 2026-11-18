@@ -71,6 +71,10 @@ git push --follow-tags
   `MIO_ANDROID_TEMPLATE=/tmp/mio-exp/mio-shell-arm64.apk` 跑 `mio build`；
 - master 引擎每夜在变，实验包只用于对比测试，确认收益后再等包含该改动的 stable
   并把 `release.yml` 里的 `flutter-version` 提上去。
+- 已知坑：master 的 AGP 最低版本会高于本项目，工作流用
+  `--android-skip-build-dependency-validation` 宽过；`nativeapi` 0.5.10 的入口库会导出
+  只给独立运行时用的 `run_native_app.dart`（依赖 Dart 3.13 的 `Isolate.create`），
+  在 Dart 3.14+ 上编不过，工作流在 `pub get` 之后把那条条件导出删掉再构建。
 
 ## Web 模板
 
