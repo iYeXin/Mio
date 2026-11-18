@@ -72,19 +72,20 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Allow nativeapi on newer Dart
+      - run: flutter pub get
+
+      - name: Patch nativeapi for newer Dart
         shell: bash
         run: |
-          # master 的 Dart 去掉了 Isolate.create，而 nativeapi 0.5.10 的
-          # `nativeapi.dart` 会导出只给独立运行时可用的 run_native_app.dart。
-          # 0.5.11 不再导出它，仍然满足 window_manager/tray_manager 的 ^0.5.5 约束。
-          cat >> pubspec.yaml <<'PUBSPEC'
-
-          dependency_overrides:
-            nativeapi: ^0.5.11
-          PUBSPEC
-
-      - run: flutter pub get
+          # master 的 Dart 移除了 Isolate.create，而 nativeapi 0.5.10 的
+          # `nativeapi.dart` 会导出只给独立运行时可用的 run_native_app.dart，
+          # 于是整个包在 Dart 3.14+ 上编不过（0.5.11 修了但已撤回，0.6 又改了 API）。
+          # 实验模板只需要窗口/托盘插件用到的那部分，直接把这条导出注释掉。
+          cache="${PUB_CACHE:-$HOME/.pub-cache}"
+          target="$(ls -d "$cache"/hosted/pub.dev/nativeapi-* | sort -V | tail -n1)"
+          echo "patching $target"
+          sed -i "s|^export 'src/run_native_app.dart';|// removed for Flutter master: uses Dart 3.13-only Isolate.create|" "$target/lib/nativeapi.dart"
+          grep -n "run_native_app" "$target/lib/nativeapi.dart" || true
 
       - name: Build
         shell: bash
