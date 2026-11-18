@@ -471,5 +471,32 @@
 
   installDiagnostics();
   installInsets();
+
+  // The shell keeps the WebView at full size when the IME opens (adjustNothing):
+  // resizing the platform view on every animation frame is what made the page
+  // stutter. It sends the keyboard height instead, and the page makes room with
+  // this variable / event without touching the WebView itself.
+  function installKeyboard() {
+    if (window.__MIO_KEYBOARD__) return;
+    window.__MIO_KEYBOARD__ = true;
+    var root = document.documentElement;
+    root.classList.add("mio-keyboard-inset");
+
+    function apply(payload) {
+      var height = payload && typeof payload.height === "number" ? payload.height : 0;
+      if (!(height >= 0)) height = 0;
+      root.style.setProperty("--mio-keyboard-inset", height + "px");
+      try {
+        window.dispatchEvent(new CustomEvent("mio:keyboard", { detail: { height: height } }));
+      } catch (_) {
+        // Older WebViews without CustomEvent still get the CSS variable.
+      }
+    }
+
+    invoke("platform.keyboard").then(apply).catch(function () {});
+    on("app.keyboard", apply);
+  }
+
+  installKeyboard();
   connect();
 })();

@@ -517,6 +517,13 @@ export const platform = {
    */
   insets: (): Promise<Insets> => invoke("platform.insets"),
   /**
+   * IME height in logical pixels; 0 when the keyboard is closed. The shell keeps
+   * the WebView at full size while the keyboard animates, so pages make room for
+   * it themselves instead of relayouting the platform view every frame. The
+   * runtime mirrors it into `--mio-keyboard-inset` and emits `mio:keyboard`.
+   */
+  keyboard: (): Promise<{ height: number }> => invoke("platform.keyboard"),
+  /**
    * Android system bar appearance: icon contrast (all supported versions) and
    * bar colors (Android 14 and below). Android 15+ is always edge-to-edge and
    * ignores colors; the page background paints that area instead.

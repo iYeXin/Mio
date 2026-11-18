@@ -110,6 +110,9 @@ class MioApi with WidgetsBindingObserver {
     _eventSink?.call(name, data);
   }
 
+  /// Last keyboard height sent to the page, to avoid duplicate events.
+  double _lastKeyboard = 0;
+
   Completer<bool>? _pendingBack;
 
   /// Ask the page whether it handles the Android back button.
@@ -140,6 +143,21 @@ class MioApi with WidgetsBindingObserver {
   void didChangeMetrics() {
     // Rotation and cutout changes; the page updates its safe-area variables.
     emit('app.insets', _insets());
+    // The window no longer resizes for the IME (adjustNothing), so the page needs
+    // the keyboard height to make room itself instead of relayouting the WebView.
+    final height = _keyboardHeight();
+    if ((height - _lastKeyboard).abs() > 0.5) {
+      _lastKeyboard = height;
+      emit('app.keyboard', {'height': height});
+    }
+  }
+
+  /// IME height in logical pixels; 0 when the keyboard is closed.
+  double _keyboardHeight() {
+    final view = WidgetsBinding.instance.platformDispatcher.views.first;
+    final ratio = view.devicePixelRatio == 0 ? 1.0 : view.devicePixelRatio;
+    final bottom = view.viewInsets.bottom / ratio;
+    return (bottom * 10).round() / 10;
   }
 
   /// Safe-area insets in logical pixels (Android cutout/status/nav bars).
@@ -216,6 +234,8 @@ class MioApi with WidgetsBindingObserver {
         return await _fitToWorkArea(params);
       case 'platform.display':
         return await _display();
+      case 'platform.keyboard':
+        return <String, double>{'height': _keyboardHeight()};
       case 'platform.insets':
         return _insets();
       case 'platform.setSystemBars':
