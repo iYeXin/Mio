@@ -72,6 +72,18 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Allow nativeapi on newer Dart
+        shell: bash
+        run: |
+          # master 的 Dart 去掉了 Isolate.create，而 nativeapi 0.5.10 的
+          # `nativeapi.dart` 会导出只给独立运行时可用的 run_native_app.dart。
+          # 0.5.11 不再导出它，仍然满足 window_manager/tray_manager 的 ^0.5.5 约束。
+          cat >> pubspec.yaml <<'PUBSPEC'
+
+          dependency_overrides:
+            nativeapi: ^0.5.11
+          PUBSPEC
+
       - run: flutter pub get
 
       - name: Build
