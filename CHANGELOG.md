@@ -3,6 +3,21 @@
 本文件记录 Mio 的对外变更。版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)；
 `MIO_API_VERSION`（桥契约）与 CLI 版本分开演进，见 [docs/release.md](docs/release.md)。
 
+## 0.2.10 — 2026-11-19
+
+- **键盘不再挤压 WebView**：Android 的 `windowSoftInputMode` 改为 `adjustNothing`，
+  `Scaffold` 显式 `resizeToAvoidBottomInset: false`。之前键盘每帧都会改变 WebView
+  尺寸，页面跟着持续重排，输入法展开/收起时看起来很卡；现在 WebView 尺寸固定，键盘
+  只作为高度值交给页面自己处理；
+- 新增键盘桥 `app.keyboard` / `platform.keyboard()`：壳上报键盘高度（逻辑像素），
+  页面可以只做位移或局部布局，不必依赖 `visualViewport` 的时序（收起时它会晚几帧，
+  混用会出现“先抬一下再落下”）；
+- `packages/api` 的 bootstrap 把键盘高度写进 `--mio-keyboard-inset` 并派发
+  `mio:keyboard` 事件，同时给 `documentElement` 加 `mio-keyboard-inset` 标记，
+  页面据此判断是否有原生键盘数据；
+- **insets 去重**：`didChangeMetrics` 里只有安全区真正变化时才发送 `app.insets`，
+  避免键盘动画期间每帧重写一遍全页样式变量。
+
 ## 0.2.9 — 2026-11-17
 
 - **asar 缓存改为内容哈希**：构建时把 `app.asar` 的 SHA-256 写进
