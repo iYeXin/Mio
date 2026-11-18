@@ -433,7 +433,11 @@
       for (var i = 0; i < sides.length; i++) {
         var side = sides[i];
         var value = typeof insets[side] === "number" ? insets[side] : 0;
-        root.style.setProperty("--mio-inset-" + side, value + "px");
+        var next = value + "px";
+        // Writing an unchanged custom property still invalidates style/layout,
+        // and the IME dispatches metrics every animation frame.
+        if (root.style.getPropertyValue("--mio-inset-" + side) === next) continue;
+        root.style.setProperty("--mio-inset-" + side, next);
       }
     }
 

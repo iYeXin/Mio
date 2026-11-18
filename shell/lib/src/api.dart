@@ -113,6 +113,9 @@ class MioApi with WidgetsBindingObserver {
   /// Last keyboard height sent to the page, to avoid duplicate events.
   double _lastKeyboard = 0;
 
+  /// Last safe-area insets sent to the page, to avoid duplicate events.
+  Map<String, double>? _lastInsets;
+
   Completer<bool>? _pendingBack;
 
   /// Ask the page whether it handles the Android back button.
@@ -142,7 +145,14 @@ class MioApi with WidgetsBindingObserver {
   @override
   void didChangeMetrics() {
     // Rotation and cutout changes; the page updates its safe-area variables.
-    emit('app.insets', _insets());
+    // Only when they actually changed: the IME animates by dispatching metrics
+    // every frame, and re-sending identical insets made the page rewrite its CSS
+    // variables (and reflow the whole app) on each of those frames.
+    final insets = _insets();
+    if (!_sameInsets(insets)) {
+      _lastInsets = insets;
+      emit('app.insets', insets);
+    }
     // The window no longer resizes for the IME (adjustNothing), so the page needs
     // the keyboard height to make room itself instead of relayouting the WebView.
     final height = _keyboardHeight();
@@ -150,6 +160,20 @@ class MioApi with WidgetsBindingObserver {
       _lastKeyboard = height;
       emit('app.keyboard', {'height': height});
     }
+  }
+
+  bool _sameInsets(Map<String, double> next) {
+    final previous = _lastInsets;
+    if (previous == null || previous.length != next.length) {
+      return false;
+    }
+    for (final entry in next.entries) {
+      final value = previous[entry.key];
+      if (value == null || (value - entry.value).abs() > 0.01) {
+        return false;
+      }
+    }
+    return true;
   }
 
   /// IME height in logical pixels; 0 when the keyboard is closed.
