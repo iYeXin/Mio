@@ -12,6 +12,16 @@ export interface MioBootstrap {
 
 export type BridgeState = "connecting" | "open" | "closed";
 
+/**
+ * Set by the runtime bootstrap before any app code runs, so a page can tell
+ * whether it is inside the Mio shell and which platform it is on.
+ */
+export interface MioEnvironment {
+  platform: string;
+  apiVersion: string;
+  app: { id?: string; name?: string; version?: string };
+}
+
 export interface MioBridge {
   readonly __mio: true;
   readonly apiVersion: string;
@@ -35,6 +45,8 @@ export interface MioBridge {
 declare global {
   interface Window {
     Mio?: MioBridge;
+    /** Present only inside the Mio shell. */
+    __MIO__?: MioEnvironment;
     __MIO_BOOT__?: MioBootstrap;
   }
 }

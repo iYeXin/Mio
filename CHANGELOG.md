@@ -17,6 +17,9 @@
   页面只做位移；
 - 壳在 `didChangeMetrics` 里对整份视口快照去重（0.1 px），避免输入法动画期间每帧
   重写页面变量；
+- bootstrap 在任何应用代码之前设置 `window.__MIO__`（`platform` / `apiVersion` /
+  `app`），`@iyexin/mio-api` 据此判断是否初始化：不在 Mio 里时调用立刻以
+  `MIO_UNAVAILABLE` 拒绝，并提供 `isMio()` / `environment()` 给应用做平台分支；
 - 移除 0.2.9 里刚加、未发布到稳定版的 `platform.keyboard` / `app.keyboard` /
   `--mio-keyboard-inset` / `mio:keyboard`；`platform.insets()` 与 `platform.display()`
   保留但标记弃用，改用 `platform.viewport()`。

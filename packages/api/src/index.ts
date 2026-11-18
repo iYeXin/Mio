@@ -2,12 +2,13 @@
 // the runtime also injects this file before the app bundle; the bootstrap
 // guards against double installation.
 import "../bootstrap.js";
-import type { BridgeState, MioBridge } from "./types.js";
+import type { BridgeState, MioBridge, MioEnvironment } from "./types.js";
 
 export type {
   BridgeState,
   MioBridge,
   MioBootstrap,
+  MioEnvironment,
 } from "./types.js";
 
 export interface AppFeatures {
@@ -278,6 +279,33 @@ function fromBase64(data: string): Uint8Array {
   return bytes;
 }
 
+/**
+ * Whether the page is running inside the Mio shell.
+ *
+ * The runtime bootstrap sets `window.__MIO__` before any app code runs; outside
+ * Mio the API stays inert instead of waiting for a bridge that will never come.
+ */
+export const isMio = (): boolean =>
+  typeof window !== "undefined" && Boolean(window.__MIO__);
+
+/** Platform, API contract version and app identity, when running inside Mio. */
+export const environment = (): MioEnvironment | null =>
+  (typeof window !== "undefined" && window.__MIO__) || null;
+
+function notInMio(): Error {
+  const error = new Error(
+    "Not running inside Mio; @iyexin/mio-api stays inert outside the shell",
+  );
+  error.name = "MioError";
+  (error as Error & { code?: string }).code = "MIO_UNAVAILABLE";
+  return error;
+}
+
+function hasDevBootstrap(): boolean {
+  if (typeof window === "undefined") return false;
+  return new URLSearchParams(window.location.search).has("__mio_port");
+}
+
 function waitForBridge(timeoutMs = 10_000): Promise<MioBridge> {
   if (typeof window === "undefined") {
     return Promise.reject(new Error("Mio API is only available in a browser"));
@@ -323,6 +351,11 @@ export async function getMio(): Promise<MioBridge> {
     throw new Error("Mio API is only available in a browser");
   }
   if (window.Mio) return window.Mio;
+  // Outside the shell (plain `npm run dev`, tests, a browser preview) there is
+  // nothing to wait for, so fail fast instead of polling for ten seconds.
+  if (!window.__MIO__ && !hasDevBootstrap()) {
+    throw notInMio();
+  }
 
   // Dev mode: the shell adds __mio_port/__mio_token to the Vite URL. The
   // bootstrap file may also be bundled by the app, in which case this is a

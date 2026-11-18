@@ -15,6 +15,30 @@ const unsubscribe = await Mio.on("app.lifecycle", (event) => {
 });
 ```
 
+## 运行环境
+
+壳在注入 bootstrap 时（早于任何应用代码）设置一个全局标记：
+
+```js
+window.__MIO__; // { platform: "android" | "windows", apiVersion: "1.0.0", app: { id, name, version } }
+```
+
+它只表示「页面运行在 Mio 里」，不带连接状态——在普通浏览器里为 `undefined`。
+用途：
+
+- `@iyexin/mio-api` 用它判断是否初始化：不在 Mio 里时所有调用立刻以
+  `MIO_UNAVAILABLE` 拒绝，而不是等十秒超时；可用 `isMio()` / `environment()` 提前判断：
+
+  ```ts
+  import { isMio, environment } from "@iyexin/mio-api";
+  if (isMio() && environment()?.platform === "android") {
+    // Android 专属逻辑
+  }
+  ```
+
+- 应用代码做平台特异分支时看 `__MIO__.platform`，不用去猜 `navigator.userAgent`；
+- 需要「只有在 Mio 里才挂载原生对接层」时，用 `isMio()` 包一层即可，web 预览保持可用。
+
 ## 调用与事件
 
 | 成员 | 说明 |

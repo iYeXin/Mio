@@ -40,6 +40,15 @@
     return;
   }
 
+  // Set before the bridge itself, so @iyexin/mio-api and app code can tell
+  // whether they are inside the shell: outside Mio this file returns above and
+  // the flag stays undefined.
+  window.__MIO__ = {
+    platform: boot.platform || "web",
+    apiVersion: boot.apiVersion || "1.0.0",
+    app: boot.app || {}
+  };
+
   function MioError(code, message, data) {
     var error = new Error(message);
     error.name = "MioError";
