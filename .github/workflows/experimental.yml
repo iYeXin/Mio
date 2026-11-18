@@ -77,15 +77,23 @@ jobs:
       - name: Patch nativeapi for newer Dart
         shell: bash
         run: |
-          # master 的 Dart 移除了 Isolate.create，而 nativeapi 0.5.10 的
-          # `nativeapi.dart` 会导出只给独立运行时可用的 run_native_app.dart，
-          # 于是整个包在 Dart 3.14+ 上编不过（0.5.11 修了但已撤回，0.6 又改了 API）。
-          # 实验模板只需要窗口/托盘插件用到的那部分，直接把这条导出注释掉。
-          cache="${PUB_CACHE:-$HOME/.pub-cache}"
-          target="$(ls -d "$cache"/hosted/pub.dev/nativeapi-* | sort -V | tail -n1)"
-          echo "patching $target"
-          sed -i "s|^export 'src/run_native_app.dart';|// removed for Flutter master: uses Dart 3.13-only Isolate.create|" "$target/lib/nativeapi.dart"
-          grep -n "run_native_app" "$target/lib/nativeapi.dart" || true
+          # master 的 Dart 移除了 Isolate.create，而 nativeapi 0.5.10 的入口库会导出
+          # 只给独立运行时用的 run_native_app.dart，整个包因此在 Dart 3.14+ 上编不过
+          # （0.5.11 修了但已撤回，0.6 又换了 API）。实验模板只需要窗口/托盘那部分，
+          # 这里把那条条件导出整段删掉。
+          python3 - <<'PATCH'
+          import glob, os, re
+          cache = os.environ.get('PUB_CACHE') or os.path.expanduser('~/.pub-cache')
+          target = sorted(glob.glob(os.path.join(cache, 'hosted/pub.dev/nativeapi-*')))[-1]
+          path = os.path.join(target, 'lib/nativeapi.dart')
+          source = open(path, encoding='utf-8').read()
+          pattern = re.compile(r"export 'src/run_native_app\.dart'\s*\n\s*if \(dart\.library\.js_interop\) 'src/run_native_app_web\.dart';")
+          patched, count = pattern.subn('// run_native_app removed for Flutter master', source)
+          assert count == 1, 'nativeapi layout changed; update the workflow'
+          open(path, 'w', encoding='utf-8').write(patched)
+          print('patched', path)
+          print('remaining refs:', patched.count('run_native_app.dart'))
+          PATCH
 
       - name: Build
         shell: bash
