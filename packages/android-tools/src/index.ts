@@ -6,6 +6,7 @@ export {
   describeAndroidTools,
   inspectAndroidTools,
   statusComplete,
+  toolsCacheRoot,
   toolsFromStatus,
   describeMissing,
   bundleComplete,
