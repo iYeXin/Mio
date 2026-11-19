@@ -324,21 +324,6 @@ async function cachedBundleDir(
   return undefined;
 }
 
-/** Numeric-aware version comparison so 0.10.0 sorts after 0.9.0. */
-function compareVersions(left: string, right: string): number {
-  const parse = (value: string) => value.split(/[.+-]/).map((part) => Number.parseInt(part, 10));
-  const a = parse(left);
-  const b = parse(right);
-  for (let index = 0; index < Math.max(a.length, b.length); index += 1) {
-    const diff = (a[index] ?? 0) - (b[index] ?? 0);
-    if (Number.isNaN(diff) || diff !== 0) {
-      if (Number.isNaN(diff)) return left.localeCompare(right);
-      return diff;
-    }
-  }
-  return 0;
-}
-
 /**
  * Inspect what the machine has without throwing.
  *
