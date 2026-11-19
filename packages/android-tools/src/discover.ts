@@ -105,6 +105,8 @@ export interface DiscoverOptions {
   env?: NodeJS.ProcessEnv;
   /** Override for tests; defaults to process.platform. */
   platform?: NodeJS.Platform;
+  /** Override for tests; defaults to process.arch. */
+  arch?: string;
 }
 
 const isWindows = (platform: NodeJS.Platform): boolean => platform === "win32";
@@ -302,7 +304,7 @@ export function toolsCacheRoot(env: NodeJS.ProcessEnv = process.env): string {
  */
 async function cachedBundleDir(
   env: NodeJS.ProcessEnv,
-  platform: NodeJS.Platform,
+  target: string,
 ): Promise<string | undefined> {
   const root = toolsCacheRoot(env);
   let entries;
@@ -316,7 +318,7 @@ async function cachedBundleDir(
     .map((entry) => entry.name)
     .sort((left, right) => compareVersions(right, left));
   for (const version of versions) {
-    const dir = join(root, version, platform);
+    const dir = join(root, version, target);
     if (await exists(join(dir, ".mio-tools.json"))) {
       return dir;
     }
@@ -340,7 +342,10 @@ export async function inspectAndroidTools(
   const status: AndroidToolStatus = {};
 
   const explicitDir = env.MIO_ANDROID_TOOLS_DIR;
-  const cachedDir = explicitDir ?? (await cachedBundleDir(env, platform));
+  // Tool bundles are keyed by `<platform>-<arch>` (linux-arm64), not by the
+  // Node platform alone.
+  const target = `${platform}-${options.arch ?? process.arch}`;
+  const cachedDir = explicitDir ?? (await cachedBundleDir(env, target));
   const toolsDir = cachedDir;
   if (toolsDir) {
     status.apksignerJar = await firstExisting([

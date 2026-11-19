@@ -3,7 +3,7 @@
 本文件记录 Mio 的对外变更。版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)；
 `MIO_API_VERSION`（桥契约）与 CLI 版本分开演进，见 [docs/release.md](docs/release.md)。
 
-## 0.2.13 — 2026-11-19
+## 0.2.14 — 2026-11-19
 
 - **修复工具链缓存发现不到**：`inspectAndroidTools` 现在会扫描
   `~/.mio/tools/android/<bundle 版本>/<平台>`（`MIO_TOOLS_CACHE_DIR` 可覆盖），并读取
