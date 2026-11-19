@@ -5,7 +5,7 @@ import { dirname, join } from "node:path";
 import { MioToolError } from "./errors.js";
 import { run } from "./exec.js";
 
-export type ToolSource = "env-bundle" | "android-sdk";
+export type ToolSource = "env-bundle" | "cache-bundle" | "android-sdk";
 
 export interface AndroidTools {
   /** Java executable. Absolute path when known, otherwise "java" from PATH. */
@@ -288,6 +288,57 @@ async function findBuildTools(
   return undefined;
 }
 
+/** Cache root for tool bundles; `MIO_TOOLS_CACHE_DIR` overrides the default. */
+export function toolsCacheRoot(env: NodeJS.ProcessEnv = process.env): string {
+  return env.MIO_TOOLS_CACHE_DIR ?? join(homedir(), ".mio", "tools", "android");
+}
+
+/**
+ * Newest installed tool bundle for this platform, or undefined.
+ *
+ * `ensureAndroidTools` installs into `<cache>/<bundle version>/<platform>` with a
+ * pin file; without this the next process would not find it and would download
+ * the bundle again (or fail offline).
+ */
+async function cachedBundleDir(
+  env: NodeJS.ProcessEnv,
+  platform: NodeJS.Platform,
+): Promise<string | undefined> {
+  const root = toolsCacheRoot(env);
+  let entries;
+  try {
+    entries = await readdir(root, { withFileTypes: true });
+  } catch {
+    return undefined;
+  }
+  const versions = entries
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name)
+    .sort((left, right) => compareVersions(right, left));
+  for (const version of versions) {
+    const dir = join(root, version, platform);
+    if (await exists(join(dir, ".mio-tools.json"))) {
+      return dir;
+    }
+  }
+  return undefined;
+}
+
+/** Numeric-aware version comparison so 0.10.0 sorts after 0.9.0. */
+function compareVersions(left: string, right: string): number {
+  const parse = (value: string) => value.split(/[.+-]/).map((part) => Number.parseInt(part, 10));
+  const a = parse(left);
+  const b = parse(right);
+  for (let index = 0; index < Math.max(a.length, b.length); index += 1) {
+    const diff = (a[index] ?? 0) - (b[index] ?? 0);
+    if (Number.isNaN(diff) || diff !== 0) {
+      if (Number.isNaN(diff)) return left.localeCompare(right);
+      return diff;
+    }
+  }
+  return 0;
+}
+
 /**
  * Inspect what the machine has without throwing.
  *
@@ -303,7 +354,9 @@ export async function inspectAndroidTools(
   const platform = options.platform ?? process.platform;
   const status: AndroidToolStatus = {};
 
-  const toolsDir = env.MIO_ANDROID_TOOLS_DIR;
+  const explicitDir = env.MIO_ANDROID_TOOLS_DIR;
+  const cachedDir = explicitDir ?? (await cachedBundleDir(env, platform));
+  const toolsDir = cachedDir;
   if (toolsDir) {
     status.apksignerJar = await firstExisting([
       join(toolsDir, "apksigner.jar"),
@@ -313,7 +366,9 @@ export async function inspectAndroidTools(
       join(toolsDir, zipalignName(platform)),
       join(toolsDir, "bin", zipalignName(platform)),
     ]);
-    if (status.apksignerJar && status.zipalign) status.toolsSource = "env-bundle";
+    if (status.apksignerJar && status.zipalign) {
+      status.toolsSource = explicitDir ? "env-bundle" : "cache-bundle";
+    }
 
     status.aapt2 = await firstExisting([
       join(toolsDir, aapt2Name(platform)),

@@ -3,6 +3,17 @@
 本文件记录 Mio 的对外变更。版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)；
 `MIO_API_VERSION`（桥契约）与 CLI 版本分开演进，见 [docs/release.md](docs/release.md)。
 
+## 0.2.11 — 2026-11-19
+
+- **修复工具链缓存发现不到**：`inspectAndroidTools` 现在会扫描
+  `~/.mio/tools/android/<bundle 版本>/<平台>`（`MIO_TOOLS_CACHE_DIR` 可覆盖），并读取
+  `.mio-tools.json` 标记。之前下载安装后，下一次构建仍然联网重拉清单，断网时即使组件完整
+  也会报 `BUNDLE_DOWNLOAD_FAILED`；`mio tools` 打印的缓存路径也改成真实位置；
+- **版本号单一来源**：CLI 版本从自身 `package.json` 读取，不再在 `constants.ts` 里手写
+  两份；新增 `scripts/check-versions.mjs`，在 CI 里校验四个 `package.json` 与四处 API
+  契约版本是否一致，`verify-release.ps1` 改为调用它；
+- `@iyexin/mio-api` 导出 `MIO_API_VERSION`，页面可以比对壳上报的 `apiVersion`。
+
 ## 0.2.10 — 2026-11-19
 
 - **新的视口契约 `platform.viewport()` / `app.viewport`**：一次返回 `{ width, height,

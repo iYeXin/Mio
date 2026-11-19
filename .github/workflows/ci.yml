@@ -52,6 +52,11 @@ jobs:
           fi
           exit $status
 
+      # Version numbers live in several places by necessity (shell, SDK, CLI,
+      # release script); fail fast when one of them drifted.
+      - name: Version consistency
+        run: node scripts/check-versions.mjs
+
       # Versions, LICENSE, docs coverage, template policy. Fast checks only;
       # the suites above are the same ones `-Full` would re-run.
       - name: Release checks

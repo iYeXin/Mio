@@ -49,15 +49,11 @@ foreach ($pkg in @("packages/cli", "packages/api", "packages/android-tools")) {
   }
 }
 
-Check "MIO_CLI_VERSION matches root version" {
-  (Get-Content "packages/cli/src/constants.ts" -Raw) -match "MIO_CLI_VERSION = `"$rootVersion`""
-}
-
-Check "MIO_API_VERSION identical in CLI and shell" {
-  $cli = [regex]::Match((Get-Content "packages/cli/src/constants.ts" -Raw), 'MIO_API_VERSION = "([^"]+)"').Groups[1].Value
-  $shell = [regex]::Match((Get-Content "shell/lib/src/api.dart" -Raw), "mioApiVersion = '([^']+)'").Groups[1].Value
-  $api = [regex]::Match((Get-Content "packages/api/bootstrap.js" -Raw), 'apiVersion: "([0-9.]+)"').Groups[1].Value
-  $cli -ne "" -and $cli -eq $shell -and $cli -eq $api
+# The CLI reads its own version from package.json and the API contract version
+# is mirrored across languages; one script owns both rules.
+Check "version numbers are consistent" {
+  node scripts/check-versions.mjs 2>&1 | Out-Null
+  $LASTEXITCODE -eq 0
 }
 
 # --- license / docs -------------------------------------------------------

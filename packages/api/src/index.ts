@@ -4,6 +4,9 @@
 import "../bootstrap.js";
 import type { BridgeState, MioBridge, MioEnvironment } from "./types.js";
 
+/** Bridge contract version implemented by this package; mirrors the shell. */
+export const MIO_API_VERSION = "1.0.0";
+
 export type {
   BridgeState,
   MioBridge,

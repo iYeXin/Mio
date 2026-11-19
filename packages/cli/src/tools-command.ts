@@ -1,11 +1,10 @@
-import { homedir } from "node:os";
-import { join } from "node:path";
 import {
   bundleComplete,
   describeMissing,
   ensureAndroidTools,
   inspectAndroidTools,
   statusComplete,
+  toolsCacheRoot,
 } from "@iyexin/mio-android-tools";
 import type { AndroidAbi, LoadedConfig, MioConfig } from "./config.js";
 import { MIO_CLI_VERSION, MIO_RELEASE_BASE } from "./constants.js";
@@ -54,7 +53,7 @@ async function showToolsStatus(): Promise<void> {
   console.log(
     `AAB builds: ${bundleReady ? "ready" : `incomplete (${describeMissing(status, { bundle: true })})`}`,
   );
-  console.log(`cache: ${join(homedir(), ".mio", "tools", "android")}`);
+  console.log(`cache: ${toolsCacheRoot()}`);
   console.log("");
   console.log("Fetch what is missing with `mio tools install` (add `--format aab` for bundles).");
 }
