@@ -19,7 +19,13 @@
   `portrait` 即竖屏锁定；
 - 页面环境多了 `__MIO__.theme`（`light` / `dark`），早于应用代码可用，开屏图与首屏配色
   可以保持一致；
-- Android 的系统栏图标不再由整段 appearance 覆盖，只改状态栏/导航栏对应的位。
+- Android 的系统栏图标不再由整段 appearance 覆盖，只改状态栏/导航栏对应的位；
+- **清单改写改为解码-修改-编码**：`AndroidManifest.xml` 先解码成结构化模型（元素、属性、
+  命名空间、resource map），改完再编码回去，模板里的其他内容原样保留，后续加权限、
+  meta-data 这类结构性修改不用再写第二套二进制编辑器；
+- 顺带修掉改包名时把 `MioForegroundService` 类名一起改写的问题：清单里声明的服务类必须
+  留在模板包内，否则 `foreground.start` 起不来；现在只改包名、包名派生的权限名和
+  provider authorities，类名不动。
 
 ## 0.2.14 — 2026-11-19
 

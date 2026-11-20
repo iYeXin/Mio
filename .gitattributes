@@ -14,3 +14,6 @@
 * text=auto eol=lf
 *.ps1 text eol=crlf
 *.bat text eol=crlf
+
+# Binary XML test fixture: git must not normalize line endings.
+*.axml binary

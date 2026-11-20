@@ -48,11 +48,15 @@ export {
 } from "./keystore.js";
 
 export {
+  decodeAxml,
+  encodeAxml,
   parseAxml,
   patchManifestAxml,
   type AxmlAttribute,
   type AxmlDocument,
   type AxmlElement,
+  type AxmlNamespace,
+  type AxmlValue,
   type ManifestPatch,
 } from "./axml.js";
 

@@ -16,7 +16,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json",
-    "test": "node --import tsx --test test/apksigner.test.ts test/discovery.test.ts test/signing.test.ts test/tool-bundle.test.ts test/bundle.test.ts"
+    "test": "node --import tsx --test test/apksigner.test.ts test/discovery.test.ts test/signing.test.ts test/tool-bundle.test.ts test/bundle.test.ts test/axml.test.ts"
   },
   "engines": {
     "node": ">=20"
@@ -56,3 +56,4 @@
     "access": "public"
   }
 }
+
