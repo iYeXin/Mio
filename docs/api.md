@@ -165,6 +165,23 @@ Android 15+ 强制 edge-to-edge，`statusBarColor` / `navigationBarColor` 会被
 返回 `colors: false`；状态栏区域显示的是页面自己的背景，需要颜色的页面自行铺顶部区域。
 Android 14 及更早仍然应用颜色。图标明暗在所有支持的版本上生效（`icons: true`）。
 
+暗色主题下让图标变浅：
+
+```ts
+const dark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+await platform.setSystemBars({
+  statusBarIcons: dark ? "light" : "dark",
+  navigationBarIcons: dark ? "light" : "dark",
+});
+```
+
+主题在应用内切换时，用应用自己的主题状态调用同一段，并在切换后重新调用一次；
+监听系统主题变化可以加：
+
+```ts
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", syncBars);
+```
+
 ## fs
 
 根目录是应用数据目录下的 `app/`，相对路径都从这里解析。
