@@ -3,7 +3,7 @@
 本文件记录 Mio 的对外变更。版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)；
 `MIO_API_VERSION`（桥契约）与 CLI 版本分开演进，见 [docs/release.md](docs/release.md)。
 
-## 未发布
+## 0.2.15 — 2026-11-20
 
 - **启动主题**：`window.theme`（`system` / `light` / `dark`）。壳在页面代码执行前解析它，
   用它选开屏图和状态栏图标的明暗；Android 12+ 还会切换应用夜间模式，让
