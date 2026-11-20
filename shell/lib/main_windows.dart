@@ -209,7 +209,8 @@ class _WindowsWebViewPageState extends State<_WindowsWebViewPage> {
         ),
         body: MioSplash(
           manifest: widget.runtime.manifest,
-          image: widget.runtime.splashBytes,
+          imageLight: widget.runtime.splashLight,
+          imageDark: widget.runtime.splashDark,
         ),
       );
     }

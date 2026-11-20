@@ -19,6 +19,12 @@ export type BridgeState = "connecting" | "open" | "closed";
 export interface MioEnvironment {
   platform: string;
   apiVersion: string;
+  /**
+   * Startup appearance declared by `window.theme`, already resolved to
+   * `light` or `dark`. Available before the app bundle runs, so the page can
+   * paint the same theme as the splash.
+   */
+  theme?: "light" | "dark";
   app: { id?: string; name?: string; version?: string };
 }
 

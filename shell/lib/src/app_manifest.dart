@@ -9,9 +9,12 @@ class AppManifest {
     this.width = 1024,
     this.height = 720,
     this.backgroundColor = '#ffffff',
-    this.splash,
-    this.splashBackground,
+    this.theme = 'system',
+    this.splash = const <String, String>{},
+    this.splashBackground = const <String, String>{},
     this.splashFit = 'contain',
+    this.statusBar = 'visible',
+    this.orientation = 'auto',
     this.requiredApiVersion,
     this.foregroundService = false,
     this.x,
@@ -34,12 +37,39 @@ class AppManifest {
   final int height;
   final String backgroundColor;
 
-  /// Path inside the app archive (e.g. `__mio__/splash.png`), or null.
-  final String? splash;
-  /// Background behind the splash; falls back to [backgroundColor].
-  final String? splashBackground;
+  /// Startup appearance: `system`, `light` or `dark`.
+  ///
+  /// The shell resolves it before the page runs, so the splash and the status
+  /// bar icons match the theme the app asked for.
+  final String theme;
+
+  /// Splash image inside the app archive per brightness (`light` / `dark`).
+  final Map<String, String> splash;
+  /// Background behind the splash per brightness; falls back to
+  /// [backgroundColor].
+  final Map<String, String> splashBackground;
   /// `contain` or `cover`.
   final String splashFit;
+
+  /// Startup status bar behaviour: `visible`, `hidden` or `immersive`.
+  final String statusBar;
+
+  /// Startup rotation lock: `auto`, `portrait` or `landscape`.
+  final String orientation;
+
+  /// Splash path for the given brightness; a single variant covers both.
+  String? splashPath({required bool dark}) {
+    final wanted = dark ? 'dark' : 'light';
+    return splash[wanted] ?? splash['light'] ?? splash['dark'];
+  }
+
+  /// Splash background for the given brightness, or null when none is set.
+  String? splashBackgroundFor({required bool dark}) {
+    final wanted = dark ? 'dark' : 'light';
+    return splashBackground[wanted] ??
+        splashBackground['light'] ??
+        splashBackground['dark'];
+  }
 
   /// Minimum Mio API the app was built against, e.g. "1.0.0".
   final String? requiredApiVersion;
@@ -91,9 +121,12 @@ class AppManifest {
       width: _positiveInt(windowMap['width'], fallback.width),
       height: _positiveInt(windowMap['height'], fallback.height),
       backgroundColor: _string(windowMap['backgroundColor'], fallback.backgroundColor),
-      splash: _optionalString(windowMap['splash']),
-      splashBackground: _optionalString(windowMap['splashBackground']),
+      theme: _theme(windowMap['theme']),
+      splash: _themedStrings(windowMap['splash']),
+      splashBackground: _themedStrings(windowMap['splashBackground']),
       splashFit: windowMap['splashFit'] == 'cover' ? 'cover' : 'contain',
+      statusBar: _statusBar(androidMap['statusBar']),
+      orientation: _orientation(androidMap['orientation']),
       requiredApiVersion:
           requiresMap['apiVersion'] is String ? requiresMap['apiVersion'] as String : null,
       foregroundService: androidMap['foregroundService'] == true,
@@ -127,21 +160,55 @@ class AppManifest {
           'width': width,
           'height': height,
           'backgroundColor': backgroundColor,
-          if (splash != null) 'splash': splash,
-          if (splashBackground != null) 'splashBackground': splashBackground,
-          if (splash != null) 'splashFit': splashFit,
+          'theme': theme,
+          if (splash.isNotEmpty) 'splash': splash,
+          if (splashBackground.isNotEmpty) 'splashBackground': splashBackground,
+          if (splash.isNotEmpty) 'splashFit': splashFit,
         },
         if (requiredApiVersion != null)
           'requires': {'apiVersion': requiredApiVersion},
-        if (foregroundService) 'android': {'foregroundService': true},
+        if (foregroundService || statusBar != 'visible' || orientation != 'auto')
+          'android': {
+            if (foregroundService) 'foregroundService': true,
+            if (statusBar != 'visible') 'statusBar': statusBar,
+            if (orientation != 'auto') 'orientation': orientation,
+          },
       };
+
+  static const Set<String> _barModes = {'visible', 'hidden', 'immersive'};
+  static const Set<String> _orientations = {'auto', 'portrait', 'landscape'};
+
+  static String _theme(Object? value) {
+    return value == 'light' || value == 'dark' ? value! as String : 'system';
+  }
+
+  static String _statusBar(Object? value) {
+    return value is String && _barModes.contains(value) ? value : 'visible';
+  }
+
+  static String _orientation(Object? value) {
+    return value is String && _orientations.contains(value) ? value : 'auto';
+  }
+
+  /// Accepts `"x.png"` (both brightnesses) and `{ light, dark }`.
+  static Map<String, String> _themedStrings(Object? value) {
+    final out = <String, String>{};
+    void add(String key, Object? entry) {
+      if (entry is String && entry.trim().isNotEmpty) out[key] = entry.trim();
+    }
+
+    if (value is Map) {
+      add('light', value['light']);
+      add('dark', value['dark']);
+    } else {
+      add('light', value);
+      add('dark', value);
+    }
+    return out;
+  }
 
   static String _string(Object? value, String fallback) {
     return value is String && value.trim().isNotEmpty ? value.trim() : fallback;
-  }
-
-  static String? _optionalString(Object? value) {
-    return value is String && value.trim().isNotEmpty ? value.trim() : null;
   }
 
   static int? _optionalInt(Object? value) {

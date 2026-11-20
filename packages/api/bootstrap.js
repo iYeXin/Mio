@@ -23,6 +23,7 @@
         token: token,
         platform: params.get("__mio_platform") || "web",
         apiVersion: "1.0.0",
+        theme: params.get("__mio_theme") || undefined,
         app: {
           id: params.get("__mio_app_id") || "dev.mio.app",
           name: params.get("__mio_app_name") || "Mio App",
@@ -46,6 +47,7 @@
   window.__MIO__ = {
     platform: boot.platform || "web",
     apiVersion: boot.apiVersion || "1.0.0",
+    theme: boot.theme && boot.theme !== "system" ? boot.theme : undefined,
     app: boot.app || {}
   };
 

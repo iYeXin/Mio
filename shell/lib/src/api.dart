@@ -91,6 +91,51 @@ class MioApi with WidgetsBindingObserver {
   /// Devtools are available when configured explicitly, otherwise in dev only.
   bool get devTools => manifest.devTools ?? (asar == null);
 
+  /// Theme the page should render: `window.theme` when it is forced, otherwise
+  /// the current system brightness.
+  String get resolvedTheme {
+    final theme = manifest.theme;
+    if (theme == 'light' || theme == 'dark') return theme;
+    return WidgetsBinding.instance.platformDispatcher.platformBrightness ==
+            Brightness.dark
+        ? 'dark'
+        : 'light';
+  }
+
+  /// Applies `window.theme`, `android.statusBar` and `android.orientation`
+  /// before the first frame, so the splash and the bars agree with the theme
+  /// the app declared instead of the system default.
+  Future<void> applyStartupChrome() async {
+    if (platformName != 'android') return;
+    try {
+      await const MethodChannel('mio/runtime')
+          .invokeMethod<Object?>('applyTheme', {'theme': manifest.theme});
+      if (manifest.orientation != 'auto') {
+        await platformActions.orientation(manifest.orientation);
+      }
+    } on Exception {
+      // Theme and rotation are best effort; the page can still set them.
+    }
+    await applySystemBarsDefault();
+  }
+
+  /// Applies `android.statusBar` and the theme's icon default.
+  ///
+  /// Called once before the first frame and once after it: hiding a bar before
+  /// the window is attached is dropped by the system on some devices.
+  Future<void> applySystemBarsDefault() async {
+    if (platformName != 'android') return;
+    try {
+      await _setSystemBars(<String, dynamic>{
+        'statusBar': manifest.statusBar,
+        'statusBarIcons': resolvedTheme == 'dark' ? 'light' : 'dark',
+      });
+    } on Exception {
+      // Startup chrome is best effort; the page can still call
+      // platform.setSystemBars itself.
+    }
+  }
+
   late final MioProcessManager _processManager;
   late final MioNativeManager _nativeManager;
   late final MioHttpApi _http;
@@ -269,6 +314,8 @@ class MioApi with WidgetsBindingObserver {
       case 'platform.insets':
         // Kept for pages built against 0.2.9; prefer platform.viewport.
         return _insets();
+      case 'platform.systemBars':
+        return await _systemBars();
       case 'platform.setSystemBars':
         return await _setSystemBars(params);
       case 'platform.keepAwake':
@@ -750,14 +797,21 @@ class MioApi with WidgetsBindingObserver {
     return <String, Object?>{'width': width, 'height': height};
   }
 
+  /// Last known system bar state; also the dedupe key for native notifications.
+  Map<String, Object?>? _systemBarsState;
+
   Future<Object?> _setSystemBars(Map<String, dynamic> params) async {
     if (platformName != 'android') {
       throw MioApiException('UNSUPPORTED', 'setSystemBars is Android only');
     }
+    final statusBar = _barMode(params['statusBar'], 'statusBar');
+    final navigationBar = _barMode(params['navigationBar'], 'navigationBar');
     try {
       final applied = await const MethodChannel('mio/runtime').invokeMapMethod<String, Object?>(
         'setSystemBars',
         {
+          'statusBar': statusBar,
+          'navigationBar': navigationBar,
           'statusBarColor': params['statusBarColor'],
           'navigationBarColor': params['navigationBarColor'],
           'statusBarIcons': params['statusBarIcons'],
@@ -769,10 +823,66 @@ class MioApi with WidgetsBindingObserver {
         final parsed = _parseColor(status);
         if (parsed != null) mioSystemBarColor.value = parsed;
       }
-      return applied ?? <String, Object?>{'icons': false, 'colors': false};
+      final state = _plainMap(applied);
+      if (state != null) _systemBarsState = state;
+      return state ?? <String, Object?>{'icons': false, 'colors': false};
     } on PlatformException catch (error) {
       throw MioApiException('SHELL_ERROR', error.message ?? 'setSystemBars failed');
     }
+  }
+
+  Future<Object?> _systemBars() async {
+    if (platformName != 'android') {
+      throw MioApiException('UNSUPPORTED', 'systemBars is Android only');
+    }
+    try {
+      final state = _plainMap(
+        await const MethodChannel('mio/runtime').invokeMapMethod<String, Object?>('systemBars'),
+      );
+      if (state == null) {
+        throw MioApiException('SHELL_ERROR', 'The shell returned no system bar state');
+      }
+      _systemBarsState = state;
+      return state;
+    } on PlatformException catch (error) {
+      throw MioApiException('SHELL_ERROR', error.message ?? 'systemBars failed');
+    }
+  }
+
+  /// Native reports a visibility change, for example when the user swipes a
+  /// hidden bar back in; forward it to the page unless nothing changed.
+  void updateSystemBars(Object? data) {
+    final next = _plainMap(data);
+    if (next == null) return;
+    final previous = _systemBarsState;
+    if (previous != null && jsonEncode(previous) == jsonEncode(next)) return;
+    _systemBarsState = next;
+    emit('app.systemBars', next);
+  }
+
+  String? _barMode(Object? value, String field) {
+    if (value == null) return null;
+    if (value is! String || !const {'visible', 'hidden', 'immersive'}.contains(value)) {
+      throw MioApiException('BAD_REQUEST', '$field must be visible, hidden or immersive');
+    }
+    return value;
+  }
+
+  static Map<String, Object?>? _plainMap(Object? value) {
+    final plain = _plainJson(value);
+    return plain is Map<String, Object?> ? plain : null;
+  }
+
+  static Object? _plainJson(Object? value) {
+    if (value is Map) {
+      return <String, Object?>{
+        for (final entry in value.entries) '${entry.key}': _plainJson(entry.value),
+      };
+    }
+    if (value is List) {
+      return <Object?>[for (final item in value) _plainJson(item)];
+    }
+    return value;
   }
 
   Color? _parseColor(String value) {

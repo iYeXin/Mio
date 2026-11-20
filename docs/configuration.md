@@ -63,9 +63,10 @@
 | `width` / `height` | 1024 / 720 | 初始尺寸（逻辑像素） |
 | `title` | 应用名称 | 窗口标题，优先于 `app.name` |
 | `backgroundColor` | `#0f1115` | 窗口 / WebView 底色；页面首帧前、页面背景透明时露出的颜色 |
-| `splash` | — | 开屏图路径（相对项目根目录，支持 `.png` / `.jpg` / `.jpeg` / `.webp`）；构建时打进应用归档 |
-| `splashBackground` | 同 `backgroundColor` | 开屏图背后的底色 |
+| `splash` | — | 开屏图路径（相对项目根目录，支持 `.png` / `.jpg` / `.jpeg` / `.webp`）；构建时打进应用归档。可写成 `{ "light": ..., "dark": ... }` 分别给浅色和深色主题 |
+| `splashBackground` | 同 `backgroundColor` | 开屏图背后的底色；同样可以写成 `{ "light": ..., "dark": ... }` |
 | `splashFit` | `contain` | `contain` 完整显示，`cover` 铺满裁切 |
+| `theme` | `system` | 启动主题：`system` 跟随系统，`light` / `dark` 固定。壳按它选择开屏图、状态栏图标；Android 12+ 还会切换应用夜间模式 |
 | `x` / `y` | 居中 | 初始位置 |
 | `center` | `true` | 是否居中 |
 | `minWidth` / `minHeight` | — | 最小尺寸 |
@@ -73,16 +74,32 @@
 | `decorations` | `true` | `false` 得到无边框窗口，可自绘标题栏 |
 | `alwaysOnTop` | `false` | 置顶 |
 
-### 开屏图
+### 开屏图与启动主题
 
 ```json
-{ "window": { "backgroundColor": "#0f1115", "splash": "splash.png", "splashFit": "cover" } }
+{
+  "window": {
+    "backgroundColor": "#0f1115",
+    "theme": "system",
+    "splash": { "light": "splash-light.png", "dark": "splash-dark.png" },
+    "splashBackground": { "light": "#ffffff", "dark": "#000000" },
+    "splashFit": "cover"
+  }
+}
 ```
 
 开屏图在构建时复制进应用归档，启动时由壳直接显示：服务绑定、端口占用重试和
 WebView 加载期间都保持，页面加载完成后再切到页面；只要 `splashBackground`
 （或 `backgroundColor`）也可以，相当于纯色开屏，不会出现白屏或系统加载圈。
 图片建议不超过 12 MB。
+
+`theme` 决定启动时用哪一张：`system` 按系统亮度选，`light` / `dark` 固定。因为开屏图
+出现在页面代码之前，页面没法自己按主题换图，所以这件事由配置和壳完成；同时壳会用同一个
+主题值决定状态栏图标的明暗，页面拿到 `__MIO__.theme` 后可以直接渲染与其一致的配色。
+
+`theme` 固定为 `dark` / `light` 时，Android 12+ 会通过应用夜间模式把页面里的
+`prefers-color-scheme` 也切过去，两者不会打架；Android 11 及更早没有这个接口，壳只保证
+开屏图和状态栏图标，页面需要一致时读 `__MIO__.theme`。
 
 ## web
 
@@ -105,6 +122,14 @@ WebView 加载期间都保持，页面加载完成后再切到页面；只要 `s
 | `storePasswordEnv` | — | 存库密码所在的环境变量 |
 | `keyPasswordEnv` | — | 密钥密码所在的环境变量 |
 | `foregroundService` | `false` | 允许使用前台服务 |
+| `statusBar` | `visible` | 启动时的状态栏行为：`visible` / `hidden` / `immersive` |
+| `orientation` | `auto` | 启动时的旋转锁定：`auto` 跟随传感器，`portrait` / `landscape` 固定方向 |
+
+`statusBar` 的三种取值：`visible` 正常显示；`hidden` 隐藏，从屏幕边缘划出后保持显示；
+`immersive` 隐藏，划出时短暂显示后自动收回。运行时可随时用 `platform.setSystemBars` 改。
+
+`orientation` 在启动时应用，等价于启动后立即调用 `platform.orientation()`；`auto` 不锁定。
+`portrait` 就是竖屏锁定。
 
 签名密码只通过环境变量读取，不写入配置或命令行参数。
 

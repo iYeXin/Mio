@@ -3,6 +3,24 @@
 本文件记录 Mio 的对外变更。版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)；
 `MIO_API_VERSION`（桥契约）与 CLI 版本分开演进，见 [docs/release.md](docs/release.md)。
 
+## 未发布
+
+- **启动主题**：`window.theme`（`system` / `light` / `dark`）。壳在页面代码执行前解析它，
+  用它选开屏图和状态栏图标的明暗；Android 12+ 还会切换应用夜间模式，让
+  `prefers-color-scheme` 与开屏图一致；
+- **按主题的开屏图**：`window.splash` / `window.splashBackground` 可以写成
+  `{ "light": ..., "dark": ... }`，构建时两张图都打进归档，启动时按主题选；原来的字符串
+  写法等价于两个主题共用一张；
+- **状态栏行为**：`android.statusBar` 设置启动值（`visible` / `hidden` / `immersive`），
+  运行时用 `platform.setSystemBars({ statusBar, navigationBar })` 修改；新增
+  `platform.systemBars()` 查询和 `app.systemBars` 事件，用户把隐藏的系统栏划出来时也会
+  触发，`mode` 字段说明当前是 `hidden` 还是 `immersive`；
+- **旋转锁定**：`android.orientation`（`auto` / `portrait` / `landscape`）在启动时应用，
+  `portrait` 即竖屏锁定；
+- 页面环境多了 `__MIO__.theme`（`light` / `dark`），早于应用代码可用，开屏图与首屏配色
+  可以保持一致；
+- Android 的系统栏图标不再由整段 appearance 覆盖，只改状态栏/导航栏对应的位。
+
 ## 0.2.14 — 2026-11-19
 
 - **修复工具链缓存发现不到**：`inspectAndroidTools` 现在会扫描

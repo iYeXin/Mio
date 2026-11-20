@@ -29,7 +29,8 @@ class MioRuntime {
     required this.api,
     required this.asar,
     required this.devUrl,
-    required this.splashBytes,
+    required this.splashLight,
+    required this.splashDark,
   });
 
   final MioPlatform platform;
@@ -40,8 +41,12 @@ class MioRuntime {
   final AsarArchive? asar;
   final String? devUrl;
 
-  /// Decoded bytes are left to the widget; null when the app has no splash.
-  final Uint8List? splashBytes;
+  /// Splash images, already decoded for the widget; null when not configured.
+  ///
+  /// Both brightnesses live in the archive so the widget can follow a theme
+  /// change without touching the filesystem again.
+  final Uint8List? splashLight;
+  final Uint8List? splashDark;
 
   String get webUrl => devUrl == null ? server.url : server.devUrlWithBoot();
 
@@ -80,14 +85,15 @@ class MioRuntime {
       throw StateError(compatibility);
     }
 
-    Uint8List? splashBytes;
-    if (devUrl == null && asar != null && manifest.splash != null) {
-      try {
-        splashBytes = await asar.read(manifest.splash!);
-      } catch (_) {
-        // A missing or unreadable splash must never block startup.
-        splashBytes = null;
-      }
+    Uint8List? splashLight;
+    Uint8List? splashDark;
+    if (devUrl == null && asar != null) {
+      final lightPath = manifest.splashPath(dark: false);
+      final darkPath = manifest.splashPath(dark: true);
+      splashLight = await _readSplash(asar, lightPath);
+      splashDark = darkPath == lightPath
+          ? splashLight
+          : await _readSplash(asar, darkPath);
     }
 
     final api = MioApi(
@@ -112,8 +118,19 @@ class MioRuntime {
       api: api,
       asar: asar,
       devUrl: devUrl,
-      splashBytes: splashBytes,
+      splashLight: splashLight,
+      splashDark: splashDark,
     );
+  }
+
+  /// A missing or unreadable splash must never block startup.
+  static Future<Uint8List?> _readSplash(AsarArchive asar, String? path) async {
+    if (path == null) return null;
+    try {
+      return await asar.read(path);
+    } catch (_) {
+      return null;
+    }
   }
 
   bool _served = false;

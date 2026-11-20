@@ -3,7 +3,7 @@ import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { extname, join, resolve } from "node:path";
 import { createPackage } from "@electron/asar";
-import type { MioConfig } from "./config.js";
+import { themedEntries, type MioConfig, type Themed } from "./config.js";
 import { MIO_API_VERSION, MIO_CLI_VERSION } from "./constants.js";
 
 export interface CreateAsarOptions {
@@ -19,23 +19,73 @@ export interface CreateAsarResult {
   size: number;
 }
 
+/** Archive path per brightness; a missing variant falls back in the shell. */
+interface ThemedStrings {
+  light?: string;
+  dark?: string;
+}
+
+/** `Themed<T>` as explicit `{ light, dark }`; a shared value fills both. */
+function themedValues<T>(value: Themed<T> | undefined): { light?: T; dark?: T } {
+  const out: { light?: T; dark?: T } = {};
+  for (const entry of themedEntries(value)) {
+    if (entry.variant === "") {
+      out.light = entry.value;
+      out.dark = entry.value;
+    } else {
+      out[entry.variant] = entry.value;
+    }
+  }
+  return out;
+}
+
+function themedColors(value: Themed<string> | undefined, fallback: string): ThemedStrings {
+  const values = themedValues(value);
+  const light = values.light ?? fallback;
+  return { light, dark: values.dark ?? light };
+}
+
+/**
+ * Copies every splash variant into the archive under `__mio__/`.
+ *
+ * Both variants live in the same archive: the shell picks one at startup from
+ * `window.theme` (or the system brightness), which the page cannot do because
+ * it has not run yet.
+ */
+async function stageSplash(
+  options: CreateAsarOptions,
+  stage: string,
+): Promise<ThemedStrings | undefined> {
+  const values = themedValues(options.config.window?.splash);
+  if (values.light === undefined && values.dark === undefined) return undefined;
+  if (!options.projectDir) {
+    throw new Error("projectDir is required when window.splash is set");
+  }
+  await mkdir(join(stage, "__mio__"), { recursive: true });
+  const staged: ThemedStrings = {};
+  for (const variant of ["light", "dark"] as const) {
+    const source = values[variant];
+    if (source === undefined) continue;
+    const entry = `__mio__/splash-${variant}${extname(source).toLowerCase()}`;
+    await copyFile(resolve(options.projectDir, source), join(stage, entry));
+    staged[variant] = entry;
+  }
+  return staged;
+}
+
 export async function createAppAsar(options: CreateAsarOptions): Promise<CreateAsarResult> {
   const stage = await mkdtemp(join(tmpdir(), "mio-asar-"));
   try {
     await cp(options.webDir, stage, { recursive: true });
 
     const backgroundColor = options.config.window?.backgroundColor ?? "#0f1115";
-    let splashEntry: string | undefined;
-    const splash = options.config.window?.splash;
-    if (splash) {
-      if (!options.projectDir) {
-        throw new Error("projectDir is required when window.splash is set");
-      }
-      const source = resolve(options.projectDir, splash);
-      splashEntry = `__mio__/splash${extname(source).toLowerCase()}`;
-      await mkdir(join(stage, "__mio__"), { recursive: true });
-      await copyFile(source, join(stage, splashEntry));
-    }
+    const backgrounds = themedColors(options.config.window?.splashBackground, backgroundColor);
+    const splash = await stageSplash(options, stage);
+    const android = {
+      ...(options.config.android?.foregroundService ? { foregroundService: true } : {}),
+      ...(options.config.android?.statusBar ? { statusBar: options.config.android.statusBar } : {}),
+      ...(options.config.android?.orientation ? { orientation: options.config.android.orientation } : {}),
+    };
 
     const manifest = {
       id: options.config.app.id,
@@ -47,10 +97,11 @@ export async function createAppAsar(options: CreateAsarOptions): Promise<CreateA
         height: options.config.window?.height ?? 720,
         title: options.config.window?.title ?? options.config.app.name,
         backgroundColor,
-        ...(splashEntry
+        theme: options.config.window?.theme ?? "system",
+        ...(splash
           ? {
-              splash: splashEntry,
-              splashBackground: options.config.window?.splashBackground ?? backgroundColor,
+              splash,
+              splashBackground: backgrounds,
               splashFit: options.config.window?.splashFit ?? "contain",
             }
           : {}),
@@ -71,9 +122,7 @@ export async function createAppAsar(options: CreateAsarOptions): Promise<CreateA
       requires: {
         apiVersion: MIO_API_VERSION,
       },
-      ...(options.config.android?.foregroundService
-        ? { android: { foregroundService: true } }
-        : {}),
+      ...(Object.keys(android).length > 0 ? { android } : {}),
       build: {
         cli: MIO_CLI_VERSION,
         api: MIO_API_VERSION,

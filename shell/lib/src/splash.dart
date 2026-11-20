@@ -18,23 +18,44 @@ Color parseMioColor(String? value, Color fallback) {
   return Color(hex.length == 6 ? 0xff000000 | parsed : parsed);
 }
 
+/// Brightness the shell and the page should treat as the startup theme.
+///
+/// `window.theme` wins: the app declared what it will render, so the shell must
+/// not guess from the system setting. `system` follows [platform].
+Brightness mioStartupBrightness(String theme, Brightness platform) {
+  if (theme == 'light') return Brightness.light;
+  if (theme == 'dark') return Brightness.dark;
+  return platform;
+}
+
 /// Full-window splash shown while the WebView loads.
 ///
-/// Without an image it is just the configured background colour, which also
-/// removes the white flash for dark apps.
+/// Both brightnesses can be configured, because the page has not run yet and
+/// cannot pick the image itself. Without an image it is just the configured
+/// background colour, which also removes the white flash for dark apps.
 class MioSplash extends StatelessWidget {
-  const MioSplash({required this.manifest, this.image, super.key});
+  const MioSplash({
+    required this.manifest,
+    this.imageLight,
+    this.imageDark,
+    super.key,
+  });
 
   final AppManifest manifest;
-  final Uint8List? image;
+  final Uint8List? imageLight;
+  final Uint8List? imageDark;
 
   @override
   Widget build(BuildContext context) {
+    final platform =
+        MediaQuery.maybeOf(context)?.platformBrightness ?? Brightness.light;
+    final dark = mioStartupBrightness(manifest.theme, platform) == Brightness.dark;
+    final fallback = parseMioColor(manifest.backgroundColor, const Color(0xff0f1115));
     final background = parseMioColor(
-      manifest.splashBackground ?? manifest.backgroundColor,
-      const Color(0xff0f1115),
+      manifest.splashBackgroundFor(dark: dark),
+      fallback,
     );
-    final bytes = image;
+    final bytes = dark ? (imageDark ?? imageLight) : (imageLight ?? imageDark);
     return ColoredBox(
       color: background,
       child: bytes == null

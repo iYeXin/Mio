@@ -89,6 +89,7 @@ class MioServer {
     query['__mio_port'] = port.toString();
     query['__mio_token'] = token;
     query['__mio_platform'] = api.platformName;
+    query['__mio_theme'] = api.resolvedTheme;
     return uri.replace(queryParameters: query).toString();
   }
 
@@ -512,6 +513,7 @@ class MioServer {
       'token': token,
       'apiVersion': mioApiVersion,
       'platform': api.platformName,
+      'theme': api.resolvedTheme,
       'app': {
         'id': manifest.id,
         'name': manifest.name,

@@ -250,6 +250,7 @@ test("createAppAsar bundles window.splash and records its fit", async () => {
           splash: "splash.png",
           splashBackground: "#112233",
           splashFit: "cover",
+          theme: "dark",
         },
       },
     });
@@ -257,15 +258,72 @@ test("createAppAsar bundles window.splash and records its fit", async () => {
     const manifest = JSON.parse(
       extractFile(asarPath, "mio-manifest.json").toString("utf8"),
     ) as {
-      window: { splash: string; splashBackground: string; splashFit: string };
+      window: {
+        theme: string;
+        splash: Record<string, string>;
+        splashBackground: Record<string, string>;
+        splashFit: string;
+      };
     };
-    assert.equal(manifest.window.splash, "__mio__/splash.png");
-    assert.equal(manifest.window.splashBackground, "#112233");
+    // A single image covers both brightnesses, each under its own archive path.
+    assert.equal(manifest.window.theme, "dark");
+    assert.equal(manifest.window.splash.light, "__mio__/splash-light.png");
+    assert.equal(manifest.window.splash.dark, "__mio__/splash-dark.png");
+    assert.deepEqual(manifest.window.splashBackground, {
+      light: "#112233",
+      dark: "#112233",
+    });
     assert.equal(manifest.window.splashFit, "cover");
     assert.deepEqual(
-      extractFile(asarPath, "__mio__/splash.png"),
+      extractFile(asarPath, "__mio__/splash-light.png"),
       Buffer.from([1, 2, 3, 4]),
     );
+    assert.deepEqual(
+      extractFile(asarPath, "__mio__/splash-dark.png"),
+      Buffer.from([1, 2, 3, 4]),
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("createAppAsar keeps per-theme splash images apart", async () => {
+  const root = await mkdtemp(join(tmpdir(), "mio-themed-splash-test-"));
+  try {
+    const web = join(root, "web");
+    await mkdir(web, { recursive: true });
+    await writeFile(join(web, "index.html"), "<!doctype html><title>t</title>");
+    await writeFile(join(root, "light.png"), Buffer.from([1]));
+    await writeFile(join(root, "dark.png"), Buffer.from([2]));
+
+    const asarPath = join(root, "app.asar");
+    await createAppAsar({
+      webDir: web,
+      output: asarPath,
+      projectDir: root,
+      config: {
+        app: MINIMAL_CONFIG.app,
+        window: {
+          ...MINIMAL_CONFIG.window,
+          splash: { light: "light.png", dark: "dark.png" },
+          splashBackground: { light: "#ffffff", dark: "#000000" },
+        },
+      },
+    });
+
+    const manifest = JSON.parse(
+      extractFile(asarPath, "mio-manifest.json").toString("utf8"),
+    ) as {
+      window: { splash: Record<string, string>; splashBackground: Record<string, string> };
+    };
+    assert.equal(manifest.window.splash.light, "__mio__/splash-light.png");
+    assert.equal(manifest.window.splash.dark, "__mio__/splash-dark.png");
+    assert.deepEqual(manifest.window.splashBackground, {
+      light: "#ffffff",
+      dark: "#000000",
+    });
+    assert.deepEqual(extractFile(asarPath, "__mio__/splash-light.png"), Buffer.from([1]));
+    assert.deepEqual(extractFile(asarPath, "__mio__/splash-dark.png"), Buffer.from([2]));
   } finally {
     await rm(root, { recursive: true, force: true });
   }

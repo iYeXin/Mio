@@ -20,7 +20,15 @@ Future<void> main() async {
     // Phase 1 only reads the archive and manifest, so the splash screen can be
     // on screen while the server binds (and retries) and the WebView loads.
     final runtime = await MioRuntime.prepare(MioPlatformAndroid());
+    // Theme, rotation lock and status bar default, before the first frame: the
+    // splash must already match the theme the app declared.
+    await runtime.api.applyStartupChrome();
     runApp(MioAndroidApp(runtime));
+    // The window is only attached during onResume, and hiding a bar before
+    // that is dropped on some devices; apply the startup bars once more.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(runtime.api.applySystemBarsDefault());
+    });
   } catch (error, stack) {
     runApp(MioFatalErrorApp(error: error, stack: stack));
   }
@@ -141,7 +149,13 @@ class _WebViewPageState extends State<_WebViewPage> with WidgetsBindingObserver 
   }
 
   Future<Object?> _onNativeCall(MethodCall call) async {
-    if (call.method == 'backPressed') return await _handleBack();
+    switch (call.method) {
+      case 'backPressed':
+        return await _handleBack();
+      case 'systemBarsChanged':
+        widget.runtime.api.updateSystemBars(call.arguments);
+        return null;
+    }
     return null;
   }
 
@@ -223,7 +237,8 @@ class _WebViewPageState extends State<_WebViewPage> with WidgetsBindingObserver 
               child: IgnorePointer(
                 child: MioSplash(
                   manifest: widget.runtime.manifest,
-                  image: widget.runtime.splashBytes,
+                  imageLight: widget.runtime.splashLight,
+                  imageDark: widget.runtime.splashDark,
                 ),
               ),
             ),

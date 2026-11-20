@@ -4,6 +4,7 @@ import android.Manifest
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.UiModeManager
 import android.content.ContentValues
 import android.content.Intent
 import android.graphics.Color
@@ -18,6 +19,7 @@ import android.provider.OpenableColumns
 import android.util.Base64
 import android.window.OnBackInvokedDispatcher
 import android.view.View
+import android.view.WindowInsets
 import android.view.WindowInsetsController
 import android.view.WindowManager
 import io.flutter.embedding.android.FlutterActivity
@@ -39,6 +41,11 @@ class MainActivity : FlutterActivity() {
     private var pendingNotification: Triple<String, String, Int>? = null
     private var pendingStorage: MethodChannel.Result? = null
     private var pendingStorageType: String = "images"
+
+    private var insetsWatcherInstalled = false
+    private var lastReportedBars: Map<String, Any?>? = null
+    private var desiredStatusIcons: String? = null
+    private var desiredNavigationIcons: String? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -68,6 +75,9 @@ class MainActivity : FlutterActivity() {
         // event (for example the IME) triggers an insets pass, which made
         // `platform.insets()` report zeros during startup.
         window.decorView.post { window.decorView.requestApplyInsets() }
+        // Report bar visibility changes (the user can swipe a hidden bar back
+        // in) to Dart, which forwards them as `app.systemBars`.
+        window.decorView.post { installInsetsWatcher() }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             onBackInvokedDispatcher.registerOnBackInvokedCallback(
@@ -216,65 +226,26 @@ class MainActivity : FlutterActivity() {
                     result.success(null)
                 }
 
+                "applyTheme" -> {
+                    val theme = call.argument<String>("theme") ?: "system"
+                    result.success(mapOf("theme" to theme, "applied" to applyTheme(theme)))
+                }
+
+                "systemBars" -> result.success(systemBarsState())
+
                 "setSystemBars" -> {
-                    val statusColor = call.argument<String>("statusBarColor")
-                    val navColor = call.argument<String>("navigationBarColor")
+                    val statusMode = call.argument<String>("statusBar")
+                    val navigationMode = call.argument<String>("navigationBar")
                     val statusIcons = call.argument<String>("statusBarIcons")
                     val navIcons = call.argument<String>("navigationBarIcons")
+                    val statusColor = call.argument<String>("statusBarColor")
+                    val navColor = call.argument<String>("navigationBarColor")
                     runOnUiThread {
                         try {
-                            // Icon appearance is reliable on every supported
-                            // version: `light` means light icons (dark
-                            // background), `dark` means dark icons.
-                            val applied = mutableMapOf<String, Any?>()
-                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                                val controller = window.insetsController
-                                val mask =
-                                    WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS or
-                                        WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS
-                                var appearance = 0
-                                if (statusIcons == "dark") {
-                                    appearance =
-                                        appearance or WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS
-                                }
-                                if (navIcons == "dark") {
-                                    appearance =
-                                        appearance or WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS
-                                }
-                                controller?.setSystemBarsAppearance(appearance, mask)
-                                applied["icons"] = controller != null
-                            } else {
-                                @Suppress("DEPRECATION")
-                                var flags = window.decorView.systemUiVisibility
-                                if (statusIcons != null) {
-                                    flags = if (statusIcons == "dark") {
-                                        flags or View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
-                                    } else {
-                                        flags and View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR.inv()
-                                    }
-                                }
-                                if (navIcons != null) {
-                                    flags = if (navIcons == "dark") {
-                                        flags or View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
-                                    } else {
-                                        flags and View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR.inv()
-                                    }
-                                }
-                                window.decorView.systemUiVisibility = flags
-                                applied["icons"] = true
-                            }
-
-                            // Android 15+ ignores bar colors (edge-to-edge is
-                            // enforced); the page paints the bar area instead.
-                            val colorsSupported = Build.VERSION.SDK_INT < 35
-                            if (colorsSupported) {
-                                @Suppress("DEPRECATION")
-                                statusColor?.let { window.statusBarColor = Color.parseColor(it) }
-                                @Suppress("DEPRECATION")
-                                navColor?.let { window.navigationBarColor = Color.parseColor(it) }
-                            }
-                            applied["colors"] = colorsSupported
-                            result.success(applied)
+                            applyBarModes(statusMode, navigationMode)
+                            applyIconAppearance(statusIcons, navIcons)
+                            applyBarColors(statusColor, navColor)
+                            result.success(barsState(statusMode, navigationMode))
                         } catch (error: Exception) {
                             result.error("system_bars_failed", error.message, null)
                         }
@@ -313,6 +284,260 @@ class MainActivity : FlutterActivity() {
             }
         }
 
+    }
+
+    /**
+     * Forced light/dark through the application night mode (Android 12+).
+     *
+     * Older versions have no per-app switch outside AppCompat, so the shell
+     * only themes its own chrome there; the page keeps the system brightness.
+     */
+    private fun applyTheme(theme: String): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return false
+        val manager = getSystemService(UiModeManager::class.java) ?: return false
+        val mode = when (theme) {
+            "light" -> UiModeManager.MODE_NIGHT_NO
+            "dark" -> UiModeManager.MODE_NIGHT_YES
+            else -> UiModeManager.MODE_NIGHT_AUTO
+        }
+        manager.setApplicationNightMode(mode)
+        return true
+    }
+
+    private fun applyBarModes(status: String?, navigation: String?) {
+        applyBarMode(status, navigationBars = false)
+        applyBarMode(navigation, navigationBars = true)
+    }
+
+    /**
+     * `visible` shows the bar; `hidden` hides it and a swipe brings it back for
+     * good; `immersive` hides it and a swipe only peeks.
+     */
+    private fun applyBarMode(mode: String?, navigationBars: Boolean) {
+        if (mode == null) return
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val controller = window.insetsController ?: return
+            val type = if (navigationBars) {
+                WindowInsets.Type.navigationBars()
+            } else {
+                WindowInsets.Type.statusBars()
+            }
+            when (mode) {
+                "visible" -> controller.show(type)
+                "immersive" -> {
+                    controller.systemBarsBehavior =
+                        WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                    controller.hide(type)
+                }
+                else -> {
+                    controller.systemBarsBehavior = WindowInsetsController.BEHAVIOR_DEFAULT
+                    controller.hide(type)
+                }
+            }
+            return
+        }
+        @Suppress("DEPRECATION")
+        var flags = window.decorView.systemUiVisibility
+        @Suppress("DEPRECATION")
+        val hide = if (navigationBars) {
+            View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+        } else {
+            View.SYSTEM_UI_FLAG_FULLSCREEN
+        }
+        @Suppress("DEPRECATION")
+        val immersive = View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+        flags = when (mode) {
+            "visible" -> flags and hide.inv() and immersive.inv()
+            "immersive" -> flags or hide or immersive
+            else -> (flags or hide) and immersive.inv()
+        }
+        window.decorView.systemUiVisibility = flags
+    }
+
+    /** `light` is light icons for a dark background, `dark` is the inverse. */
+    private fun applyIconAppearance(statusIcons: String?, navIcons: String?) {
+        if (statusIcons != null) desiredStatusIcons = statusIcons
+        if (navIcons != null) desiredNavigationIcons = navIcons
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val controller = window.insetsController ?: return
+            val lightStatus = WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS
+            val lightNavigation = WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS
+            var appearance = controller.systemBarsAppearance and (lightStatus or lightNavigation)
+            if (statusIcons == "dark") {
+                appearance = appearance or lightStatus
+            } else if (statusIcons == "light") {
+                appearance = appearance and lightStatus.inv()
+            }
+            if (navIcons == "dark") {
+                appearance = appearance or lightNavigation
+            } else if (navIcons == "light") {
+                appearance = appearance and lightNavigation.inv()
+            }
+            controller.setSystemBarsAppearance(appearance, lightStatus or lightNavigation)
+            return
+        }
+        @Suppress("DEPRECATION")
+        var flags = window.decorView.systemUiVisibility
+        if (statusIcons != null) {
+            flags = if (statusIcons == "dark") {
+                flags or View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
+            } else {
+                flags and View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR.inv()
+            }
+        }
+        if (navIcons != null) {
+            flags = if (navIcons == "dark") {
+                flags or View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
+            } else {
+                flags and View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR.inv()
+            }
+        }
+        window.decorView.systemUiVisibility = flags
+    }
+
+    /** Android 15+ ignores bar colours; the page paints that area instead. */
+    private fun applyBarColors(status: String?, navigation: String?) {
+        if (Build.VERSION.SDK_INT >= 35) return
+        @Suppress("DEPRECATION")
+        if (status != null) window.statusBarColor = Color.parseColor(status)
+        @Suppress("DEPRECATION")
+        if (navigation != null) window.navigationBarColor = Color.parseColor(navigation)
+    }
+
+    private fun systemBarsState(
+        insets: WindowInsets? = window.decorView.rootWindowInsets,
+    ): Map<String, Any?> {
+        val statusVisible = statusBarVisible(insets)
+        val navigationVisible = navigationBarVisible(insets)
+        return mapOf(
+            "statusBar" to mapOf(
+                "visible" to statusVisible,
+                "mode" to barMode(statusVisible, navigationBars = false),
+                "icons" to currentIcons(navigationBars = false),
+            ),
+            "navigationBar" to mapOf(
+                "visible" to navigationVisible,
+                "mode" to barMode(navigationVisible, navigationBars = true),
+                "icons" to currentIcons(navigationBars = true),
+            ),
+            "colors" to (Build.VERSION.SDK_INT < 35),
+            // Kept from the 0.2.5 result shape: icon contrast is always applied.
+            "icons" to (Build.VERSION.SDK_INT < Build.VERSION_CODES.R ||
+                window.insetsController != null),
+        )
+    }
+
+    private fun statusBarVisible(insets: WindowInsets?): Boolean {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            return insets?.isVisible(WindowInsets.Type.statusBars()) ?: true
+        }
+        @Suppress("DEPRECATION")
+        return (window.decorView.systemUiVisibility and View.SYSTEM_UI_FLAG_FULLSCREEN) == 0
+    }
+
+    private fun navigationBarVisible(insets: WindowInsets?): Boolean {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            return insets?.isVisible(WindowInsets.Type.navigationBars()) ?: true
+        }
+        @Suppress("DEPRECATION")
+        return (window.decorView.systemUiVisibility and View.SYSTEM_UI_FLAG_HIDE_NAVIGATION) == 0
+    }
+
+    private fun barMode(visible: Boolean, navigationBars: Boolean): String {
+        if (visible) return "visible"
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val behavior = window.insetsController?.systemBarsBehavior
+            return if (behavior == WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE) {
+                "immersive"
+            } else {
+                "hidden"
+            }
+        }
+        @Suppress("DEPRECATION")
+        val flags = window.decorView.systemUiVisibility
+        @Suppress("DEPRECATION")
+        val immersive = View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+        return if (flags and immersive != 0) "immersive" else "hidden"
+    }
+
+    private fun currentIcons(navigationBars: Boolean): String {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val appearance = window.insetsController?.systemBarsAppearance ?: 0
+            val bit = if (navigationBars) {
+                WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS
+            } else {
+                WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS
+            }
+            return if (appearance and bit != 0) "dark" else "light"
+        }
+        @Suppress("DEPRECATION")
+        val flags = window.decorView.systemUiVisibility
+        val bit = if (navigationBars) {
+            View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
+        } else {
+            View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
+        }
+        return if (flags and bit != 0) "dark" else "light"
+    }
+
+    /**
+     * State after a change.
+     *
+     * Insets only report a freshly hidden bar on the next dispatch, so the bars
+     * this call touched are reported from the request itself; everything else
+     * comes from the window.
+     */
+    private fun barsState(statusMode: String?, navigationMode: String?): Map<String, Any?> {
+        val state = systemBarsState().toMutableMap()
+        if (statusMode != null) {
+            state["statusBar"] = mapOf(
+                "visible" to (statusMode == "visible"),
+                "mode" to statusMode,
+                "icons" to currentIcons(navigationBars = false),
+            )
+        }
+        if (navigationMode != null) {
+            state["navigationBar"] = mapOf(
+                "visible" to (navigationMode == "visible"),
+                "mode" to navigationMode,
+                "icons" to currentIcons(navigationBars = true),
+            )
+        }
+        return state
+    }
+
+    /**
+     * Watches the decor view for inset changes, so a bar the user swiped back
+     * in is reported to the page.
+     *
+     * The listener forwards to `onApplyWindowInsets`, which is DecorView's own
+     * implementation: it still dispatches the insets to the content, so Flutter
+     * keeps its padding.
+     */
+    private fun installInsetsWatcher() {
+        if (insetsWatcherInstalled) return
+        insetsWatcherInstalled = true
+        val decor = window.decorView
+        decor.setOnApplyWindowInsetsListener { view, insets ->
+            reportSystemBars(insets)
+            view.onApplyWindowInsets(insets)
+        }
+        // Produce one dispatch even when nothing changes by itself, so the page
+        // gets the initial state.
+        decor.post { decor.requestApplyInsets() }
+    }
+
+    private fun reportSystemBars(insets: WindowInsets) {
+        // Some ROMs drop the icon appearance when a bar is hidden; put the
+        // page's choice back once the bar is visible again.
+        applyIconAppearance(
+            desiredStatusIcons.takeIf { statusBarVisible(insets) },
+            desiredNavigationIcons.takeIf { navigationBarVisible(insets) },
+        )
+        val state = systemBarsState(insets)
+        if (state == lastReportedBars) return
+        lastReportedBars = state
+        channel.invokeMethod("systemBarsChanged", state)
     }
 
     /// Back is decided in Dart (page handler, history, double-press exit);

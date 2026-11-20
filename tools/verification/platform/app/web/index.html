@@ -101,7 +101,7 @@
         ["platform.display", "screen bounds, work area and scale factor"],
         ["fs grants", "an absolute path without a dialog grant is refused"],
         ["window.fitToWorkArea", "sizes the window into the usable desktop area"],
-        ["platform.setSystemBars", "colors the Android status bar"],
+        ["platform.setSystemBars", "sets bar visibility/icons and reports the state"],
         ["storage.request", "asks for gallery read permission"],
         ["media.saveImage", "writes a generated PNG into Pictures/Mio"],
         ["platform.insets", "safe-area values and --mio-inset-* variables"],
@@ -399,13 +399,21 @@
         } else {
           try {
             const bars = await window.Mio.invoke("platform.setSystemBars", {
+              statusBar: "visible",
               statusBarColor: "#13120f",
               statusBarIcons: "light",
               navigationBarColor: "#13120f",
               navigationBarIcons: "light",
             });
-            settle(17, bars && bars.icons === true,
-              "icons=" + (bars && bars.icons) + " colors=" + (bars && bars.colors));
+            const state = await window.Mio.invoke("platform.systemBars");
+            const ok = bars && bars.icons === true &&
+              state && state.statusBar && state.statusBar.visible === true &&
+              state.statusBar.icons === "light" &&
+              state.statusBar.mode === "visible";
+            settle(17, ok,
+              "bars=" + (state && state.statusBar && state.statusBar.mode) +
+              " icons=" + (state && state.statusBar && state.statusBar.icons) +
+              " colors=" + (bars && bars.colors));
           } catch (error) {
             settle(17, false, String(error.message || error));
           }

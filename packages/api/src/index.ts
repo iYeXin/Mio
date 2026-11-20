@@ -113,6 +113,12 @@ export interface DisplayInfo {
 }
 
 export interface SystemBarOptions {
+  /**
+   * Hide or show the bar. `hidden` keeps it hidden but lets a swipe bring it
+   * back for good; `immersive` only peeks while swiping.
+   */
+  statusBar?: SystemBarMode;
+  navigationBar?: SystemBarMode;
   /** `#RRGGBB` / `#AARRGGBB`; ignored on Android 15+. */
   statusBarColor?: string;
   /** `light` = light icons for a dark background, `dark` = dark icons. */
@@ -122,11 +128,26 @@ export interface SystemBarOptions {
   navigationBarIcons?: "light" | "dark";
 }
 
-export interface SystemBarResult {
+/** `visible`, or how a hidden bar comes back. */
+export type SystemBarMode = "visible" | "hidden" | "immersive";
+
+export interface SystemBarState {
+  visible: boolean;
+  mode: SystemBarMode;
+  icons: "light" | "dark";
+}
+
+/** Current system bar state; also the payload of `app.systemBars`. */
+export interface SystemBarsState {
+  statusBar: SystemBarState;
+  navigationBar: SystemBarState;
+  /** False when the platform ignores bar colours (Android 15+). */
+  colors: boolean;
+}
+
+export interface SystemBarResult extends SystemBarsState {
   /** Whether the icon appearance was applied. */
   icons: boolean;
-  /** False when the platform ignores bar colors (Android 15+). */
-  colors: boolean;
 }
 
 export interface AppPaths {
@@ -587,12 +608,19 @@ export const platform = {
    */
   display: (): Promise<DisplayInfo> => invoke("platform.display"),
   /**
-   * Android system bar appearance: icon contrast (all supported versions) and
-   * bar colors (Android 14 and below). Android 15+ is always edge-to-edge and
-   * ignores colors; the page background paints that area instead.
+   * Android system bars: visibility, behaviour, icon contrast and (Android 14
+   * and below) colours. Android 15+ is always edge-to-edge and ignores colours;
+   * the page background paints that area instead.
+   *
+   * The returned state is the one actually applied, so it doubles as a query.
    */
   setSystemBars: (options: SystemBarOptions): Promise<SystemBarResult> =>
     invoke("platform.setSystemBars", { ...options }),
+  /** Current bar visibility, behaviour and icon contrast (Android). */
+  systemBars: (): Promise<SystemBarsState> => invoke("platform.systemBars"),
+  /** `app.systemBars`; fires when the user reveals or hides a hidden bar. */
+  onSystemBars: (handler: (state: SystemBarsState) => void): Promise<() => void> =>
+    Mio.on("app.systemBars", (data) => handler(data as SystemBarsState)),
   /** Keeps the screen awake while the app runs (Android, Windows). */
   keepAwake: (enabled: boolean): Promise<void> =>
     invoke("platform.keepAwake", { enabled }),

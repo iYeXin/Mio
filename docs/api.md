@@ -20,8 +20,12 @@ const unsubscribe = await Mio.on("app.lifecycle", (event) => {
 壳在注入 bootstrap 时（早于任何应用代码）设置一个全局标记：
 
 ```js
-window.__MIO__; // { platform: "android" | "windows", apiVersion: "1.0.0", app: { id, name, version } }
+window.__MIO__; // { platform: "android" | "windows", apiVersion: "1.0.0", theme: "light" | "dark", app: { id, name, version } }
 ```
+
+`theme` 是 `window.theme` 解析后的启动主题（`system` 已按当时的系统亮度解析成
+`light` / `dark`）。它早于应用代码可用，页面可以在第一次渲染前就套用与开屏图一致的配色；
+之后系统主题变化时以 `prefers-color-scheme` 为准。
 
 它只表示「页面运行在 Mio 里」，不带连接状态——在普通浏览器里为 `undefined`。
 用途：
@@ -83,7 +87,8 @@ window.__MIO__; // { platform: "android" | "windows", apiVersion: "1.0.0", app: 
 | `platform.viewport()` | 视口快照 `{ width, height, insets, ime, scale }`，逻辑像素；见「视口与键盘」 |
 | `platform.display()` | 已弃用，用 `platform.viewport()`；`{ scaleFactor, bounds, workArea?, window? }` |
 | `platform.insets()` | 已弃用，用 `viewport().insets`；安全边距 `{ top, right, bottom, left }` |
-| `platform.setSystemBars({ statusBarColor?, statusBarIcons?, navigationBarColor?, navigationBarIcons? })` | Android 系统栏图标明暗；返回 `{ icons, colors }` |
+| `platform.setSystemBars({ statusBar?, navigationBar?, statusBarColor?, statusBarIcons?, navigationBarColor?, navigationBarIcons? })` | Android 系统栏：显示/隐藏、图标明暗、颜色；返回实际生效的状态 |
+| `platform.systemBars()` | 当前状态 `{ statusBar: { visible, mode, icons }, navigationBar: {...}, colors }` |
 | `platform.keepAwake(enabled)` | 保持屏幕常亮（Android、Windows） |
 | `platform.orientation(mode)` | 锁定方向：`auto` / `portrait` / `landscape`（Android） |
 
@@ -158,29 +163,65 @@ window.__MIO__; // { platform: "android" | "windows", apiVersion: "1.0.0", app: 
 
 ### 系统栏
 
+`statusBar` / `navigationBar` 控制显示方式：
+
+| 值 | 行为 |
+|---|---|
+| `visible` | 正常显示 |
+| `hidden` | 隐藏；从屏幕边缘划出后保持显示，直到再次设置 |
+| `immersive` | 隐藏（沉浸）；划出时短暂显示，随后自动隐藏 |
+
 `statusBarIcons` / `navigationBarIcons`：`light` 表示浅色图标（适合深色背景），`dark` 表示
 深色图标（适合浅色背景）。
 
-Android 15+ 强制 edge-to-edge，`statusBarColor` / `navigationBarColor` 会被系统忽略，
-返回 `colors: false`；状态栏区域显示的是页面自己的背景，需要颜色的页面自行铺顶部区域。
-Android 14 及更早仍然应用颜色。图标明暗在所有支持的版本上生效（`icons: true`）。
-
-暗色主题下让图标变浅：
+启动时的默认值来自配置：`android.statusBar` 决定状态栏行为，`window.theme` 决定图标明暗
+（深色主题用浅色图标），页面不需要在加载后再补一次。运行时修改：
 
 ```ts
-const dark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+await platform.setSystemBars({ statusBar: "immersive" });
+```
+
+查询当前状态，以及监听用户把隐藏的状态栏划出来：
+
+```ts
+const bars = await platform.systemBars();
+// { statusBar: { visible: true, mode: "visible", icons: "dark" },
+//   navigationBar: { ... }, colors: false }
+
+platform.onSystemBars((state) => {
+  // 用户划出/收回隐藏的系统栏时触发
+  console.log(state.statusBar.visible, state.statusBar.mode);
+});
+```
+
+`mode` 是当前行为：显示时是 `visible`，隐藏时是 `hidden` 或 `immersive`。`setSystemBars`
+返回的也是同一份状态，可以直接当查询用。
+
+**颜色**：`statusBarColor` / `navigationBarColor` 只在 Android 14 及更早生效；Android 15+
+强制 edge-to-edge，颜色被系统忽略（`colors: false`），状态栏区域显示的是页面自己的背景。
+
+**图标**：暗色主题下让图标变浅，不依赖系统主题时用 `__MIO__.theme`：
+
+```ts
+const dark =
+  window.__MIO__?.theme === "dark" ||
+  window.matchMedia("(prefers-color-scheme: dark)").matches;
 await platform.setSystemBars({
   statusBarIcons: dark ? "light" : "dark",
   navigationBarIcons: dark ? "light" : "dark",
 });
 ```
 
-主题在应用内切换时，用应用自己的主题状态调用同一段，并在切换后重新调用一次；
-监听系统主题变化可以加：
+主题在应用内切换时，用应用自己的主题状态调用同一段，并在切换后重新调用一次；需要跟随系统
+主题时监听：
 
 ```ts
 matchMedia("(prefers-color-scheme: dark)").addEventListener("change", syncBars);
 ```
+
+`window.theme` 固定为 `dark` / `light` 时，Android 12+ 会切换应用夜间模式，页面里的
+`prefers-color-scheme` 与开屏图一致；Android 11 及更早没有按应用切换夜间模式的系统接口，
+壳只负责开屏图和状态栏图标，页面要一致时读 `__MIO__.theme`。
 
 ## fs
 
@@ -564,6 +605,7 @@ Mio.on("app.backPressed", () => {
 | `bridge.state` | `{ state: "connecting" \| "open" \| "closed" }` |
 | `app.lifecycle` | `{ state: "resumed" \| "inactive" \| "paused" \| "detached" \| ... }` |
 | `app.viewport` | `{ width, height, insets, ime, scale }`，视口真正变化时才发 |
+| `app.systemBars` | `{ statusBar: { visible, mode, icons }, navigationBar: {...}, colors }`，用户划出/收回系统栏时触发 |
 | `app.backPressed` | `{ canGoBack }` |
 | `http.request` | `{ id, method, path, query, headers, remote, bodyBase64 }` |
 | `http.progress` | `{ id, direction, received, total, ratio }`，约 120 ms 节流 |
